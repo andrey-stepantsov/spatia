@@ -1,0 +1,37 @@
+# --- Spatia Infrastructure ---
+# We track Atoms and Geometry because they are the "Source of Truth"
+# We ignore the local database and logs
+
+.spatia/logs/*
+.spatia/sentinel.db
+.spatia/sentinel.db-journal
+.spatia/sentinel.db-wal
+.spatia/portals/*
+
+# --- Nix & Build Artifacts ---
+result
+result-*
+.direnv/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# --- C++ / Build ---
+*.o
+*.a
+*.so
+*.out
+build/
+dist/
+
+# --- OS / IDE ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
