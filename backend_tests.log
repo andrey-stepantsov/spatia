@@ -1,0 +1,48 @@
+Info: Running script "env" on /Users/stepants/dev/spatia
+Requirement already satisfied: pip in ./.venv/lib/python3.13/site-packages (25.3)
+Spatia Devbox Initialized (Virtual Environment Active)
+============================= test session starts ==============================
+platform darwin -- Python 3.13.11, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/stepants/dev/spatia
+plugins: anyio-4.12.1
+collected 19 items
+
+tests/test_api.py ...                                                    [ 15%]
+tests/test_coverage_gap.py ....                                          [ 36%]
+tests/test_fossils.py .                                                  [ 42%]
+tests/test_register_symmetry.py ...                                      [ 57%]
+tests/test_sse.py .                                                      [ 63%]
+tests/test_summoning.py ..                                               [ 73%]
+tests/test_threads.py ..F                                                [ 89%]
+tests/test_witness_flow.py ..                                            [100%]
+
+=================================== FAILURES ===================================
+_____________________ test_geometry_projection_integration _____________________
+
+    def test_geometry_projection_integration():
+        # Insert some data into the test DB
+        conn = sqlite3.connect(TEST_DB)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO geometry (atom_id, x, y) VALUES ('atom1', 10, 20)")
+        cursor.execute("INSERT INTO threads (source_id, target_id) VALUES ('atom1', 'atom2')")
+        conn.commit()
+        conn.close()
+    
+        # We need to run the projector script but point it to our TEST_DB
+        # The script reads SENTINEL_DB env var.
+        env = os.environ.copy()
+        env["SENTINEL_DB"] = TEST_DB
+    
+        # 1. Project
+        cmd = [".spatia/bin/spatia-projector.py", "--project"]
+        result = subprocess.run(cmd, env=env, text=True, capture_output=True)
+>       assert result.returncode == 0
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['.spatia/bin/spatia-projector.py', '--project'], returncode=1, stdout='', stderr='  File "/User...py", line 41\n    try:\n    ^^^\nIndentationError: expected an indented block after \'except\' statement on line 39\n').returncode
+
+tests/test_threads.py:80: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_threads.py::test_geometry_projection_integration - assert 1...
+========================= 1 failed, 18 passed in 7.87s =========================
+Error: error running script "env" in Devbox: exit status 1
+
