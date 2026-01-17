@@ -1,0 +1,22 @@
+{
+    "packages": [
+        "python3",
+        "sqlite",
+        "nodejs",
+        "gcc",
+        "gnumake"
+    ],
+    "shell": {
+        "init_hook": [
+            "python3 -m venv .venv",
+            "source .venv/bin/activate",
+            "python3 -m pip install --upgrade pip",
+            "echo 'Spatia Devbox Initialized (Virtual Environment Active)'"
+        ],
+        "scripts": {
+            "test": "echo \"Error: no test specified\" && exit 1",
+            "server": "uvicorn backend.main:app --port 8000",
+            "web": "cd frontend && npm run dev"
+        }
+    }
+}

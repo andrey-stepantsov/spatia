@@ -1,0 +1,31 @@
+{
+  "lockfile_version": "1",
+  "packages": {
+    "gcc": {
+      "resolved": "github:NixOS/nixpkgs/f4606b01b39e09065df37905a2133905246db9ed?narHash=sha256-NgaL2CCiUR6nsqUIY4yxkzz07iQUlUCany44CFv%2BOxY%3D#gcc",
+      "source": "nixpkg"
+    },
+    "github:NixOS/nixpkgs/nixpkgs-unstable": {
+      "last_modified": "2026-01-15T05:51:10Z",
+      "resolved": "github:NixOS/nixpkgs/f4606b01b39e09065df37905a2133905246db9ed?lastModified=1768456270&narHash=sha256-NgaL2CCiUR6nsqUIY4yxkzz07iQUlUCany44CFv%2BOxY%3D"
+    },
+    "gnumake": {
+      "resolved": "github:NixOS/nixpkgs/f4606b01b39e09065df37905a2133905246db9ed?narHash=sha256-NgaL2CCiUR6nsqUIY4yxkzz07iQUlUCany44CFv%2BOxY%3D#gnumake",
+      "source": "nixpkg"
+    },
+    "nodejs": {
+      "plugin_version": "0.0.2",
+      "resolved": "github:NixOS/nixpkgs/f4606b01b39e09065df37905a2133905246db9ed?narHash=sha256-NgaL2CCiUR6nsqUIY4yxkzz07iQUlUCany44CFv%2BOxY%3D#nodejs",
+      "source": "nixpkg"
+    },
+    "python3": {
+      "plugin_version": "0.0.4",
+      "resolved": "github:NixOS/nixpkgs/f4606b01b39e09065df37905a2133905246db9ed?narHash=sha256-NgaL2CCiUR6nsqUIY4yxkzz07iQUlUCany44CFv%2BOxY%3D#python3",
+      "source": "nixpkg"
+    },
+    "sqlite": {
+      "resolved": "github:NixOS/nixpkgs/f4606b01b39e09065df37905a2133905246db9ed?narHash=sha256-NgaL2CCiUR6nsqUIY4yxkzz07iQUlUCany44CFv%2BOxY%3D#sqlite",
+      "source": "nixpkg"
+    }
+  }
+}

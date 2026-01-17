@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Ref: Spatia-Endorsement-Trigger
+# Usage: spatia-endorse <atom_id>
+
+ATOM_ID=$1
+DB=".spatia/sentinel.db"
+
+if [ -z "$ATOM_ID" ]; then
+    printf "Usage: spatia-endorse <atom_id>\n"
+    exit 1
+fi
+
+# Upgrade status to Level 3: Endorsed
+sqlite3 "$DB" "UPDATE atoms SET status = 3 WHERE id = '$ATOM_ID';"
+printf "\033[1;32m[SENTINEL]\033[0m Atom %s is now ENDORSED (Truth Level 3).\n" "$ATOM_ID"

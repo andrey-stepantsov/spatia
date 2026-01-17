@@ -7,11 +7,14 @@
 .spatia/sentinel.db-journal
 .spatia/sentinel.db-wal
 .spatia/portals/*
+.spatia/witness/*
+test_sentinel.db
 
 # --- Nix & Build Artifacts ---
 result
 result-*
 .direnv/
+.devbox/
 
 # --- Python ---
 __pycache__/
@@ -20,14 +23,20 @@ __pycache__/
 .venv/
 venv/
 ENV/
+.pytest_cache/
+coverage/
+
+# --- Node / Frontend ---
+node_modules/
+dist/
+build/
+.env.local
 
 # --- C++ / Build ---
 *.o
 *.a
 *.so
 *.out
-build/
-dist/
 
 # --- OS / IDE ---
 .DS_Store
