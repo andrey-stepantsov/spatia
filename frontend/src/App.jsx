@@ -11,6 +11,7 @@ const nodeTypes = {
 export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [envelopes, setEnvelopes] = useState([]);
   const [shatterPath, setShatterPath] = useState('');
   const [shatterContent, setShatterContent] = useState('');
   const [isHollow, setIsHollow] = useState(false);
@@ -26,13 +27,36 @@ export default function App() {
 
   const fetchAtoms = useCallback(async () => {
     try {
-      const [atomsRes, threadsRes] = await Promise.all([
+      const [atomsRes, threadsRes, envelopesRes] = await Promise.all([
         axios.get('/api/atoms'),
-        axios.get('/api/threads')
+        axios.get('/api/threads'),
+        axios.get('/api/envelopes').catch(() => ({ data: [] })) // Graceful fail
       ]);
 
       const atoms = atomsRes.data;
       const threads = threadsRes.data;
+      const envelopesData = envelopesRes.data;
+
+      setEnvelopes(envelopesData);
+
+      const envelopeNodes = envelopesData.map(env => ({
+        id: env.id,
+        type: 'default',
+        position: { x: env.x, y: env.y },
+        style: {
+          width: env.w,
+          height: env.h,
+          backgroundColor: 'rgba(0, 255, 0, 0.1)',
+          border: '1px dashed #0f0',
+          zIndex: -1,
+          color: 'rgba(0, 255, 0, 0.5)',
+          fontSize: '10px'
+        },
+        data: { label: `${env.id} (${env.domain || 'Generic'})` },
+        draggable: false,
+        selectable: false,
+        connectable: false
+      }));
 
       const newNodes = atoms
         .filter(atom => isGhostMode || parseInt(atom.status) !== 4)
@@ -50,7 +74,7 @@ export default function App() {
             domain: atom.domain || 'generic'
           },
         }));
-      setNodes(newNodes);
+      setNodes([...envelopeNodes, ...newNodes]);
 
       const newEdges = threads.map((t) => ({
         id: `e${t.source}-${t.target}`,
@@ -81,9 +105,16 @@ export default function App() {
 
     eventSource.onmessage = (event) => {
       console.log("SSE Event received:", event.data);
-      // For now, naive refetch on any event.
-      // Could accept specific events: 'thread_new', 'update', etc.
-      fetchAtoms();
+      // Determine if we should refetch
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'db_update' || data.type === 'update' || data.type === 'thread_new') {
+          fetchAtoms();
+        }
+      } catch (e) {
+        // Fallback if not JSON
+        fetchAtoms();
+      }
     };
 
     eventSource.onerror = (error) => {
@@ -110,7 +141,7 @@ export default function App() {
       setNodes((nds) => {
         return nds.map((node) => {
           let hasConflict = false;
-          // Simple AABB collision
+          // Simple AABB collision with other nodes
           const r1 = {
             x: node.position.x,
             y: node.position.y,
@@ -118,6 +149,7 @@ export default function App() {
             h: node.height || 150
           };
 
+          // 1. Node-Node Collision
           for (const other of nds) {
             if (node.id === other.id) continue;
             const r2 = {
@@ -135,6 +167,30 @@ export default function App() {
             ) {
               hasConflict = true;
               break;
+            }
+          }
+
+          // 2. Envelope Policy Collision
+          // Check if center of node is inside an envelope
+          const cx = r1.x + r1.w / 2;
+          const cy = r1.y + r1.h / 2;
+
+          for (const env of envelopes) {
+            if (node.id === env.id) continue;
+            // env: x, y, w, h
+            if (cx >= env.x && cx <= env.x + env.w &&
+              cy >= env.y && cy <= env.y + env.h) {
+
+              // Inside Envelope. Check Domain.
+              // If Envelope domain is different from Node domain (and Node domain is not generic/undefined?)
+              // Let's assume strict matching for now.
+              const nodeDomain = node.data.domain || 'generic';
+              const envDomain = env.domain;
+
+              if (nodeDomain !== envDomain) {
+                console.log(`Conflict: Node ${node.id} (${nodeDomain}) in Envelope ${env.id} (${envDomain})`);
+                hasConflict = true;
+              }
             }
           }
 
@@ -162,7 +218,7 @@ export default function App() {
     }, 500); // Check every 500ms
 
     return () => clearInterval(interval);
-  }, [setNodes]);
+  }, [setNodes, envelopes]); // Re-run when envelopes change
 
   const handleShatter = async (e) => {
     e.preventDefault();
@@ -179,7 +235,21 @@ export default function App() {
   };
 
   return (
-    <div className="w-screen h-screen bg-[#050505] text-white overflow-hidden flex flex-col font-sans">
+    <div className="w-screen h-screen bg-[#050505] text-white overflow-hidden flex flex-col font-sans relative">
+      {/* Background Envelopes Layer */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        {/* We need to apply same transform as ReactFlow viewport to match positions? 
+              Actually, ReactFlow has a Background component. 
+              Ideally envelopes should be NODES in ReactFlow but 'group' type or simple background nodes.
+              Or we can just use ReactFlow nodes with zIndex -1.
+              
+              Let's try creating them as ReactFlow nodes in fetchAtoms instead? 
+              That ensures they pan/zoom correctly.
+              
+              RE-PLAN: Add envelopes to 'nodes' list with a special type or style.
+          */}
+      </div>
+
       {/* Shatter Portal */}
       <div className="absolute top-4 left-4 z-50 bg-gray-900/80 backdrop-blur border border-gray-700 shadow-2xl rounded-xl p-4 w-80 transition-opacity hover:opacity-100 opacity-80">
         <h2 className="text-xs font-bold mb-3 text-blue-400 uppercase tracking-widest flex items-center gap-2">
@@ -252,3 +322,4 @@ export default function App() {
     </div>
   );
 }
+

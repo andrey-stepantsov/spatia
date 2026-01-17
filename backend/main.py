@@ -10,7 +10,20 @@ import subprocess
 import datetime
 from pydantic import BaseModel
 
+from watchfiles import awatch
+
 DB_PATH = '.spatia/sentinel.db'
+
+async def watch_sentinel_db():
+    print(f"Starting Sentinel DB Watcher on {DB_PATH}...")
+    try:
+        # Debounce/Batched updates are handled by awatch yielding a set of changes
+        async for changes in awatch(DB_PATH, step=500): # Check every 500ms
+            print(f"Sentinel DB Changed: {changes}")
+            # Broadcast a generic 'db_update' event to trigger refetch
+            await broadcast_event({"type": "db_update"})
+    except Exception as e:
+        print(f"Watcher Error: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,14 +58,35 @@ async def lifespan(app: FastAPI):
                 )
             """)
             conn.commit()
+
+            # Ensure envelopes table exists (Phase II)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS envelopes (
+                    id TEXT PRIMARY KEY,
+                    domain TEXT,
+                    x INTEGER,
+                    y INTEGER,
+                    w INTEGER,
+                    h INTEGER
+                )
+            """)
+            conn.commit()
             
             conn.close()
         except Exception as e:
             print(f"Startup Error: Failed to reset zombie atoms or init DB: {e}")
     
+    # Start Background Watcher
+    watcher_task = asyncio.create_task(watch_sentinel_db())
+    
     yield
-    # Shutdown logic (if any) here
-
+    
+    # Shutdown
+    watcher_task.cancel()
+    try:
+        await watcher_task
+    except asyncio.CancelledError:
+        print("Sentinel Watcher Stopped")
 
 clients: List[asyncio.Queue] = []
 
@@ -451,3 +485,15 @@ async def get_atom_logs(atom_id: str):
         return {"atom_id": atom_id, "logs": content}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read logs: {e}")
+
+@app.get("/api/envelopes")
+async def get_envelopes():
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        # Gracefully handle table missing if not created yet (though lifespan ensures it)
+        try:
+            cursor.execute("SELECT * FROM envelopes")
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            return []
+

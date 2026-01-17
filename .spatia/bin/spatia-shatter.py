@@ -15,6 +15,16 @@ def init_db():
 def calculate_hash(content):
     return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
+
+import re
+
+def detect_domain(filename, content):
+    if filename.endswith('.h'):
+        # Look for hex literals (e.g., 0x1234)
+        if re.search(r'0x[0-9A-Fa-f]+', content):
+            return 'Register'
+    return 'generic'
+
 def shatter(conn):
     cursor = conn.cursor()
     project_root = os.getcwd()
@@ -42,13 +52,16 @@ def shatter(conn):
             file_hash = calculate_hash(content)
             timestamp = datetime.datetime.now().isoformat()
             
+            domain = detect_domain(file, content)
+            
             query = """
-                INSERT INTO atoms (id, type, content, hash, last_witnessed)
-                VALUES (?, 'file', ?, ?, ?)
+                INSERT INTO atoms (id, type, content, hash, last_witnessed, domain)
+                VALUES (?, 'file', ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
                     hash = excluded.hash,
-                    last_witnessed = excluded.last_witnessed
+                    last_witnessed = excluded.last_witnessed,
+                    domain = excluded.domain
             """
             
             # Check for existing atom to fossilize
@@ -64,8 +77,8 @@ def shatter(conn):
                     fossil_id = f"{rel_path}@{fossil_timestamp}"
                     
                     cursor.execute("""
-                        INSERT INTO atoms (id, type, content, hash, last_witnessed, status)
-                        VALUES (?, 'file', ?, ?, ?, 4)
+                        INSERT INTO atoms (id, type, content, hash, last_witnessed, status, domain)
+                        VALUES (?, 'file', ?, ?, ?, 4, 'Fossil')
                     """, (fossil_id, old_content, old_hash, old_last_witnessed))
                     
                     # Copy Geometry
@@ -74,8 +87,8 @@ def shatter(conn):
                     if geo:
                         cursor.execute("INSERT INTO geometry (atom_id, x, y) VALUES (?, ?, ?)", (fossil_id, geo[0], geo[1]))
                         
-            cursor.execute(query, (rel_path, content, file_hash, timestamp))
-            print(f"Shattered: {rel_path}")
+            cursor.execute(query, (rel_path, content, file_hash, timestamp, domain))
+            print(f"Shattered: {rel_path} (Domain: {domain})")
             
     conn.commit()
 
@@ -99,16 +112,19 @@ if __name__ == '__main__':
             content = args.content
             file_hash = calculate_hash(content)
             timestamp = datetime.datetime.now().isoformat()
+            domain = 'generic' # Hollow constructs are generic
+            
             cursor = conn.cursor()
             query = """
-                INSERT INTO atoms (id, type, content, hash, last_witnessed)
-                VALUES (?, 'file', ?, ?, ?)
+                INSERT INTO atoms (id, type, content, hash, last_witnessed, domain)
+                VALUES (?, 'file', ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
                     hash = excluded.hash,
-                    last_witnessed = excluded.last_witnessed
+                    last_witnessed = excluded.last_witnessed,
+                    domain = excluded.domain
             """
-            cursor.execute(query, (args.path, content, file_hash, timestamp))
+            cursor.execute(query, (args.path, content, file_hash, timestamp, domain))
             conn.commit()
             print(f"ATOM_ID: {args.path}")
             
@@ -125,16 +141,19 @@ if __name__ == '__main__':
             rel_path = os.path.relpath(full_path, project_root)
             file_hash = calculate_hash(content)
             timestamp = datetime.datetime.now().isoformat()
+            domain = detect_domain(os.path.basename(full_path), content)
             
             cursor = conn.cursor()
             query = """
-                INSERT INTO atoms (id, type, content, hash, last_witnessed)
-                VALUES (?, 'file', ?, ?, ?)
+                INSERT INTO atoms (id, type, content, hash, last_witnessed, domain)
+                VALUES (?, 'file', ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
                     hash = excluded.hash,
-                    last_witnessed = excluded.last_witnessed
+                    last_witnessed = excluded.last_witnessed,
+                    domain = excluded.domain
             """
+            
             # Check for existing atom to fossilize
             cursor.execute("SELECT content, hash, last_witnessed, status FROM atoms WHERE id = ?", (rel_path,))
             existing = cursor.fetchone()
@@ -153,11 +172,9 @@ if __name__ == '__main__':
                     
                     # 1. Insert Fossil Record (Status 4)
                     # We preserve the old content and hash. 
-                    # We set last_witnessed to the old value (preserving history) or current? 
-                    # Let's preserve the old metadata.
                     cursor.execute("""
-                        INSERT INTO atoms (id, type, content, hash, last_witnessed, status)
-                        VALUES (?, 'file', ?, ?, ?, 4)
+                        INSERT INTO atoms (id, type, content, hash, last_witnessed, status, domain)
+                        VALUES (?, 'file', ?, ?, ?, 4, 'Fossil')
                     """, (fossil_id, old_content, old_hash, old_last_witnessed))
                     
                     # 2. Copy Geometry
@@ -166,7 +183,7 @@ if __name__ == '__main__':
                     if geo:
                         cursor.execute("INSERT INTO geometry (atom_id, x, y) VALUES (?, ?, ?)", (fossil_id, geo[0], geo[1]))
 
-            cursor.execute(query, (rel_path, content, file_hash, timestamp))
+            cursor.execute(query, (rel_path, content, file_hash, timestamp, domain))
             conn.commit()
             print(f"ATOM_ID: {rel_path}")
 
