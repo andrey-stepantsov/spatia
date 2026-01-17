@@ -13,7 +13,6 @@ DB_PATH = '.spatia/sentinel.db'
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("DEBUG: Lifespan Startup")
     # Startup: Reset Zombie Atoms (Status 2 -> 1)
     if os.path.exists(DB_PATH):
         try:

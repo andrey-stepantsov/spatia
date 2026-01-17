@@ -6,9 +6,7 @@ from contextlib import asynccontextmanager
 # Mock lifespan to avoid blocking DB call during test
 @asynccontextmanager
 async def mock_lifespan(app):
-    print("DEBUG: Mock Lifespan ENTER")
     yield
-    print("DEBUG: Mock Lifespan EXIT")
 
 app.router.lifespan_context = mock_lifespan
 
