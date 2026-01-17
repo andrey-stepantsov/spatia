@@ -73,6 +73,8 @@ test.describe('Visual Threads & Conflict Fold', () => {
         // 3. Verify Warning Glow (Conflict Fold)
         // The code adds 'conflict-fold' class and inline styles.
         // We check for the class.
+        // Wait for interval (500ms) to tick
+        await page.waitForTimeout(1000);
         await expect(page.locator('.conflict-fold')).toHaveCount(2); // Both should glow
     });
 });

@@ -14,6 +14,7 @@ export default function App() {
   const [shatterPath, setShatterPath] = useState('');
   const [shatterContent, setShatterContent] = useState('');
   const [isHollow, setIsHollow] = useState(false);
+  const [isGhostMode, setIsGhostMode] = useState(false);
 
   useEffect(() => {
     if (isHollow) {
@@ -33,20 +34,22 @@ export default function App() {
       const atoms = atomsRes.data;
       const threads = threadsRes.data;
 
-      const newNodes = atoms.map((atom) => ({
-        id: atom.id,
-        type: 'spatia',
-        position: { x: atom.x || 0, y: atom.y || 0 },
-        // Use dimensions if known, otherwise React Flow defaults or measures
-        width: 250, // Approx width for collision calc
-        height: 150, // Approx height
-        data: {
+      const newNodes = atoms
+        .filter(atom => isGhostMode || parseInt(atom.status) !== 4)
+        .map((atom) => ({
           id: atom.id,
-          content: atom.content,
-          status: atom.status,
-          domain: atom.domain || 'generic'
-        },
-      }));
+          type: 'spatia',
+          position: { x: atom.x || 0, y: atom.y || 0 },
+          // Use dimensions if known, otherwise React Flow defaults or measures
+          width: 250, // Approx width for collision calc
+          height: 150, // Approx height
+          data: {
+            id: atom.id,
+            content: atom.content,
+            status: atom.status,
+            domain: atom.domain || 'generic'
+          },
+        }));
       setNodes(newNodes);
 
       const newEdges = threads.map((t) => ({
@@ -61,7 +64,7 @@ export default function App() {
     } catch (err) {
       console.error("Failed to fetch data:", err);
     }
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, isGhostMode]);
 
   useEffect(() => {
     fetchAtoms();
@@ -184,16 +187,31 @@ export default function App() {
           Shatter Portal
         </h2>
         <form onSubmit={handleShatter} className="space-y-3">
-          <div className="flex items-center gap-2 mb-2">
-            <label className="text-[10px] uppercase font-bold text-gray-400">Hollow Construct</label>
-            <div
-              data-testid="hollow-switch"
-              onClick={() => setIsHollow(!isHollow)}
-              className={`w-8 h-4 rounded-full p-0.5 cursor-pointer transition-colors ${isHollow ? 'bg-blue-600' : 'bg-gray-700'}`}
-            >
-              <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${isHollow ? 'translate-x-4' : 'translate-x-0'}`} />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 mb-2">
+              <label className="text-[10px] uppercase font-bold text-gray-400">Hollow Construct</label>
+              <div
+                data-testid="hollow-switch"
+                onClick={() => setIsHollow(!isHollow)}
+                className={`w-8 h-4 rounded-full p-0.5 cursor-pointer transition-colors ${isHollow ? 'bg-blue-600' : 'bg-gray-700'}`}
+              >
+                <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${isHollow ? 'translate-x-4' : 'translate-x-0'}`} />
+              </div>
+            </div>
+
+            {/* Ghost Mode Toggle */}
+            <div className="flex items-center gap-2 mb-2">
+              <label className="text-[10px] uppercase font-bold text-gray-400">Ghost Mode</label>
+              <div
+                data-testid="ghost-mode-switch"
+                onClick={() => setIsGhostMode(!isGhostMode)}
+                className={`w-8 h-4 rounded-full p-0.5 cursor-pointer transition-colors ${isGhostMode ? 'bg-purple-600' : 'bg-gray-700'}`}
+              >
+                <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${isGhostMode ? 'translate-x-4' : 'translate-x-0'}`} />
+              </div>
             </div>
           </div>
+
           <div className="space-y-1">
             <input
               type="text"

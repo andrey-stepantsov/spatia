@@ -51,6 +51,29 @@ def shatter(conn):
                     last_witnessed = excluded.last_witnessed
             """
             
+            # Check for existing atom to fossilize
+            cursor.execute("SELECT content, hash, last_witnessed, status FROM atoms WHERE id = ?", (rel_path,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                old_content, old_hash, old_last_witnessed, old_status = existing
+                
+                # Only fossilize if content has changed
+                if old_hash != file_hash:
+                    fossil_timestamp = datetime.datetime.now().isoformat()
+                    fossil_id = f"{rel_path}@{fossil_timestamp}"
+                    
+                    cursor.execute("""
+                        INSERT INTO atoms (id, type, content, hash, last_witnessed, status)
+                        VALUES (?, 'file', ?, ?, ?, 4)
+                    """, (fossil_id, old_content, old_hash, old_last_witnessed))
+                    
+                    # Copy Geometry
+                    cursor.execute("SELECT x, y FROM geometry WHERE atom_id = ?", (rel_path,))
+                    geo = cursor.fetchone()
+                    if geo:
+                        cursor.execute("INSERT INTO geometry (atom_id, x, y) VALUES (?, ?, ?)", (fossil_id, geo[0], geo[1]))
+                        
             cursor.execute(query, (rel_path, content, file_hash, timestamp))
             print(f"Shattered: {rel_path}")
             
@@ -112,6 +135,37 @@ if __name__ == '__main__':
                     hash = excluded.hash,
                     last_witnessed = excluded.last_witnessed
             """
+            # Check for existing atom to fossilize
+            cursor.execute("SELECT content, hash, last_witnessed, status FROM atoms WHERE id = ?", (rel_path,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                old_content, old_hash, old_last_witnessed, old_status = existing
+                
+                # Only fossilize if content has changed
+                if old_hash != file_hash:
+                    # Create Fossil ID
+                    # We use the current timestamp for the ID uniqueness, representing when it became a fossil
+                    fossil_timestamp = datetime.datetime.now().isoformat()
+                    fossil_id = f"{rel_path}@{fossil_timestamp}"
+                    
+                    print(f"Fossilizing {rel_path} -> {fossil_id}")
+                    
+                    # 1. Insert Fossil Record (Status 4)
+                    # We preserve the old content and hash. 
+                    # We set last_witnessed to the old value (preserving history) or current? 
+                    # Let's preserve the old metadata.
+                    cursor.execute("""
+                        INSERT INTO atoms (id, type, content, hash, last_witnessed, status)
+                        VALUES (?, 'file', ?, ?, ?, 4)
+                    """, (fossil_id, old_content, old_hash, old_last_witnessed))
+                    
+                    # 2. Copy Geometry
+                    cursor.execute("SELECT x, y FROM geometry WHERE atom_id = ?", (rel_path,))
+                    geo = cursor.fetchone()
+                    if geo:
+                        cursor.execute("INSERT INTO geometry (atom_id, x, y) VALUES (?, ?, ?)", (fossil_id, geo[0], geo[1]))
+
             cursor.execute(query, (rel_path, content, file_hash, timestamp))
             conn.commit()
             print(f"ATOM_ID: {rel_path}")

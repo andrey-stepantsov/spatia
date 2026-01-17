@@ -14,7 +14,7 @@ def mock_db():
     conn.row_factory = sqlite3.Row
     # Create schema similar to sentinel.db
     cursor = conn.cursor()
-    cursor.execute("CREATE TABLE atoms (id TEXT PRIMARY KEY, type TEXT, status INTEGER DEFAULT 1, content TEXT)")
+    cursor.execute("CREATE TABLE atoms (id TEXT PRIMARY KEY, type TEXT, status INTEGER DEFAULT 1, content TEXT, hash TEXT, last_witnessed TEXT)")
     cursor.execute("CREATE TABLE geometry (atom_id TEXT PRIMARY KEY, x INTEGER, y INTEGER)")
     conn.commit()
     return conn

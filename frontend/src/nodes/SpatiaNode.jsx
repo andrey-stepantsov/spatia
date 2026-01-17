@@ -40,6 +40,7 @@ const SpatiaNode = ({ data }) => {
             case 1: return 'shadow-[0_0_20px_rgba(234,179,8,0.5)] border-yellow-500';
             case 2: return 'shadow-[0_0_20px_rgba(168,85,247,0.5)] border-purple-500 animate-pulse';
             case 3: return 'shadow-[0_0_20px_rgba(34,197,94,0.5)] border-green-500';
+            case 4: return 'shadow-none border-dashed border-gray-600 opacity-50';
             default: return 'shadow-[0_0_15px_rgba(107,114,128,0.3)] border-gray-500';
         }
     };
@@ -175,6 +176,20 @@ const SpatiaNode = ({ data }) => {
                         className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 hover:text-blue-300 border border-blue-600/50 px-3 py-1 text-[10px] uppercase tracking-widest font-bold rounded transition-colors shadow-[0_0_10px_rgba(59,130,246,0.2)]"
                     >
                         Summon
+                    </button>
+                )}
+
+                {parseInt(status) === 4 && (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm("Revive this fossil? The current version will be archived.")) {
+                                axios.post('/api/revive', { fossil_id: id }).catch(err => alert(err.message));
+                            }
+                        }}
+                        className="bg-purple-900/30 hover:bg-purple-900/50 text-purple-400 hover:text-purple-300 border border-purple-800/50 px-3 py-1 text-[10px] uppercase tracking-widest font-bold rounded transition-colors"
+                    >
+                        Revive
                     </button>
                 )}
             </div>

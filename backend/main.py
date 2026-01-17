@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse, Response
 import os
 import sqlite3
 import subprocess
+import datetime
 from pydantic import BaseModel
 
 DB_PATH = '.spatia/sentinel.db'
@@ -351,7 +352,75 @@ async def witness_atom(request: WitnessRequest, background_tasks: BackgroundTask
     # Notify immediate change
     await broadcast_event({"type": "update", "atom_id": request.atom_id})
 
+    # Notify immediate change
+    await broadcast_event({"type": "update", "atom_id": request.atom_id})
+
     return {"status": "witnessing", "atom_id": request.atom_id}
+
+class ReviveRequest(BaseModel):
+    fossil_id: str
+
+@app.post("/api/revive")
+async def revive_atom(request: ReviveRequest):
+    fossil_id = request.fossil_id
+    
+    if '@' not in fossil_id:
+        raise HTTPException(status_code=400, detail="Invalid fossil ID format")
+        
+    original_id = fossil_id.split('@')[0]
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # 1. Fetch Fossil Content
+        cursor.execute("SELECT content, hash, last_witnessed FROM atoms WHERE id = ?", (fossil_id,))
+        fossil = cursor.fetchone()
+        if not fossil:
+             raise HTTPException(status_code=404, detail="Fossil not found")
+        fossil_content, fossil_hash, fossil_last_witnessed = fossil
+        
+        # 2. Fetch Current Content (to fossilize it)
+        cursor.execute("SELECT content, hash, last_witnessed FROM atoms WHERE id = ?", (original_id,))
+        current = cursor.fetchone()
+        
+        if current:
+            curr_content, curr_hash, curr_last_witnessed = current
+            
+            # Fossilize current state
+            new_fossil_ts = datetime.datetime.now().isoformat()
+            new_fossil_id = f"{original_id}@{new_fossil_ts}"
+            
+            cursor.execute("""
+                INSERT INTO atoms (id, type, content, hash, last_witnessed, status)
+                VALUES (?, 'file', ?, ?, ?, 4)
+            """, (new_fossil_id, curr_content, curr_hash, curr_last_witnessed))
+            
+            # Copy Geometry
+            cursor.execute("SELECT x, y FROM geometry WHERE atom_id = ?", (original_id,))
+            geo = cursor.fetchone()
+            if geo:
+                 cursor.execute("INSERT INTO geometry (atom_id, x, y) VALUES (?, ?, ?)", (new_fossil_id, geo[0], geo[1]))
+                 
+        # 3. Promote Fossil to Current (Status 1 - Claim, needing verification if it was endorsed? Yes, revive -> Claim)
+        # We update the content to match the fossil.
+        # Note: We should probably update the hash too.
+        cursor.execute("""
+            UPDATE atoms 
+            SET content = ?, hash = ?, status = 1 
+            WHERE id = ?
+        """, (fossil_content, fossil_hash, original_id))
+        
+        conn.commit()
+    
+    # 4. Trigger Materialization (write to disk)
+    MATERIALIZE_SCRIPT = '.spatia/bin/spatia-materialize.py'
+    await run_subprocess_async([MATERIALIZE_SCRIPT])
+    
+    await broadcast_event({"type": "update", "atom_id": original_id})
+    # Also notify about the new fossil (current became fossil) and the revived fossil?
+    # Actually, we refreshed the list.
+    
+    return {"status": "revived", "atom_id": original_id}
 
 @app.get("/api/events")
 async def sse_endpoint():
