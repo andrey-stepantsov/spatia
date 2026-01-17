@@ -13,6 +13,7 @@ DB_PATH = '.spatia/sentinel.db'
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("DEBUG: Lifespan Startup")
     # Startup: Reset Zombie Atoms (Status 2 -> 1)
     if os.path.exists(DB_PATH):
         try:
@@ -215,6 +216,7 @@ async def sse_endpoint():
     clients.append(queue)
     async def event_generator():
         yield "event: connected\ndata: {}\n\n"
+        await asyncio.sleep(0.01) # Yield control to allow flush
         try:
             while True:
                 data = await queue.get()
