@@ -22,9 +22,32 @@ async def lifespan(app: FastAPI):
             if cursor.rowcount > 0:
                 print(f"Startup: Reset {cursor.rowcount} zombie witness(es) back to claim status.")
                 conn.commit()
+            
+            # Ensure threads table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS threads (
+                    source_id TEXT,
+                    target_id TEXT,
+                    PRIMARY KEY (source_id, target_id)
+                )
+            """)
+            conn.commit()
+
+            # Ensure portals table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS portals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    atom_id TEXT,
+                    path TEXT,
+                    description TEXT,
+                    created_at TEXT
+                )
+            """)
+            conn.commit()
+            
             conn.close()
         except Exception as e:
-            print(f"Startup Error: Failed to reset zombie atoms: {e}")
+            print(f"Startup Error: Failed to reset zombie atoms or init DB: {e}")
     
     yield
     # Shutdown logic (if any) here
@@ -52,6 +75,25 @@ class GeometryUpdate(BaseModel):
     atom_id: str
     x: int
     y: int
+
+class Thread(BaseModel):
+    source: str
+    target: str
+
+class PortalCreate(BaseModel):
+    atom_id: str
+    path: str
+    description: Optional[str] = None
+
+class Portal(BaseModel):
+    id: int
+    atom_id: str
+    path: str
+    description: Optional[str]
+    created_at: str
+
+class SummonRequest(BaseModel):
+    atom_id: str
 
 async def run_subprocess_async(cmd, env=None):
     try:
@@ -140,6 +182,108 @@ async def update_geometry(updates: List[GeometryUpdate]):
             """, (update.atom_id, update.x, update.y))
         conn.commit()
     return {"status": "ok"}
+
+@app.get("/api/threads")
+async def get_threads():
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT source_id as source, target_id as target FROM threads")
+        return [dict(row) for row in cursor.fetchall()]
+
+@app.post("/api/threads")
+async def create_thread(thread: Thread):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO threads (source_id, target_id) VALUES (?, ?)", (thread.source, thread.target))
+        conn.commit()
+    
+    await broadcast_event({"type": "thread_new", "source": thread.source, "target": thread.target})
+    return {"status": "ok"}
+
+@app.get("/api/portals/{atom_id}")
+async def get_portals(atom_id: str):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM portals WHERE atom_id = ?", (atom_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+@app.post("/api/portals")
+async def create_portal(portal: PortalCreate):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        import datetime
+        created_at = datetime.datetime.now().isoformat()
+        cursor.execute(
+            "INSERT INTO portals (atom_id, path, description, created_at) VALUES (?, ?, ?, ?)",
+            (portal.atom_id, portal.path, portal.description, created_at)
+        )
+        conn.commit()
+    return {"status": "ok"}
+
+@app.post("/api/summon")
+async def summon_atom(request: SummonRequest, background_tasks: BackgroundTasks):
+    atom_id = request.atom_id
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # 1. Verify Status == 0 (Shadow/Hollow)
+        cursor.execute("SELECT content, status FROM atoms WHERE id = ?", (atom_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Atom not found")
+        
+        content, status = row['content'], row['status']
+        if status != 0:
+            raise HTTPException(status_code=400, detail=f"Atom is not in Hollow state (Status 0). Current: {status}")
+            
+        # 2. Fetch Portals
+        cursor.execute("SELECT path FROM portals WHERE atom_id = ?", (atom_id,))
+        portal_paths = [r['path'] for r in cursor.fetchall()]
+        
+        # 3. Construct Summoning Context (Log it)
+        log_dir = ".spatia/logs"
+        os.makedirs(log_dir, exist_ok=True)
+        summon_log_path = os.path.join(log_dir, f"{atom_id}.summon")
+        
+        prompt_context = f"=== SUMMONING CONTEXT ===\nAtom: {atom_id}\nIntent:\n{content}\n\n=== PORTALS ===\n"
+        for p in portal_paths:
+            prompt_context += f"- {p}\n"
+            
+        with open(summon_log_path, "w") as f:
+            f.write(prompt_context)
+            
+        # 4. Simulate Generation (Append Marker)
+        # In a real AI implementation, we would call the LLM here.
+        # For now, we append a marker to the file content.
+        new_content = content + "\n\n;; SUMMONED BY SPATIA\n;; (AI Implementation would go here)"
+        
+        # Update Content and Status to 1 (Claim)
+        cursor.execute("UPDATE atoms SET content = ?, status = 1 WHERE id = ?", (new_content, atom_id))
+        conn.commit()
+
+        # Update file on disk if it matches atom_id (if atom_id is path)
+        # Only if the atom_id is a valid path string and checking existence might be good, 
+        # but for now we assume synchronization via 'spatia-shatter' or manual edit.
+        # Actually, if we update content in DB, we should probably update the file too if it exists.
+        if os.path.exists(atom_id):
+             with open(atom_id, "w") as f:
+                 f.write(new_content)
+
+    # 5. Trigger Witness (Status 2 -> 3/1) via Background
+    # We call the internal helper which expects the atom to be ready for witnessing.
+    # The witness endpoint sets status to 2 first. 
+    # Let's verify if run_witness_process handles status transition 2->3.
+    # Yes, run_witness_process calls script, then updates to 3 or 1.
+    # But we need to set it to 2 first to show "Witnessing".
+    
+    with get_db_connection() as conn:
+        conn.execute("UPDATE atoms SET status = 2 WHERE id = ?", (atom_id,))
+        conn.commit()
+
+    background_tasks.add_task(run_witness_process, atom_id)
+    
+    await broadcast_event({"type": "update", "atom_id": atom_id})
+    return {"status": "summoned", "atom_id": atom_id}
 
 class WitnessRequest(BaseModel):
     atom_id: str

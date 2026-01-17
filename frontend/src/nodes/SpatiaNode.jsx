@@ -7,6 +7,26 @@ const SpatiaNode = ({ data }) => {
     const { content, status, domain, id } = data;
     const [showLogs, setShowLogs] = useState(false);
     const [logs, setLogs] = useState(null);
+    const [showPortals, setShowPortals] = useState(false);
+    const [portals, setPortals] = useState([]);
+    const [newPortal, setNewPortal] = useState('');
+
+    const fetchPortals = () => {
+        axios.get(`/api/portals/${id}`)
+            .then(res => setPortals(res.data))
+            .catch(console.error);
+    };
+
+    const addPortal = (e) => {
+        e.preventDefault();
+        if (!newPortal) return;
+        axios.post('/api/portals', { atom_id: id, path: newPortal })
+            .then(() => {
+                setNewPortal('');
+                fetchPortals();
+            })
+            .catch(err => alert("Failed to add portal: " + err.message));
+    };
 
     // Status mapping
     // 0: Shadow (Blue)
@@ -62,6 +82,55 @@ const SpatiaNode = ({ data }) => {
                 </div>
             )}
 
+            {/* Portals Section */}
+            {parseInt(status) === 0 && (
+                <div className="px-4 py-2 border-t border-gray-800 bg-gray-900/40">
+                    <div
+                        data-testid="portals-toggle"
+                        className="flex justify-between items-center mb-2 cursor-pointer"
+                        onClick={() => {
+                            setShowPortals(!showPortals);
+                            if (!showPortals && portals.length === 0) fetchPortals();
+                        }}
+                    >
+                        <h4 className="text-[10px] uppercase text-blue-400 font-bold tracking-wider flex items-center gap-2">
+                            <span className="text-gray-500">Portals</span>
+                            {portals.length > 0 && <span className="bg-blue-900/50 text-blue-200 px-1 rounded">{portals.length}</span>}
+                        </h4>
+                        <span className="text-xs text-gray-600">{showPortals ? '▼' : '▶'}</span>
+                    </div>
+
+                    {showPortals && (
+                        <div className="space-y-2">
+                            {/* List */}
+                            <ul className="space-y-1 mb-2">
+                                {portals.map(p => (
+                                    <li key={p.id} className="text-[10px] text-gray-300 bg-black/30 px-2 py-1 rounded border border-gray-800 flex justify-between">
+                                        <span className="truncate">{p.path}</span>
+                                    </li>
+                                ))}
+                                {portals.length === 0 && <li className="text-[10px] text-gray-600 italic">No portals linked.</li>}
+                            </ul>
+
+                            {/* Add Form */}
+                            <form onSubmit={addPortal} className="flex gap-1">
+                                <input
+                                    data-testid="portal-input"
+                                    type="text"
+                                    placeholder="/path/to/truth"
+                                    value={newPortal}
+                                    onChange={(e) => setNewPortal(e.target.value)}
+                                    className="flex-1 bg-black/50 border border-gray-700 rounded px-2 py-1 text-[10px] text-white focus:border-blue-500 outline-none"
+                                />
+                                <button type="submit" data-testid="add-portal-btn" className="bg-blue-900/30 text-blue-400 border border-blue-800 p-1 rounded hover:bg-blue-800/30 transition-colors">
+                                    +
+                                </button>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            )}
+
             <div className="px-4 py-2 border-t border-gray-800 bg-gray-900/50 flex justify-between items-center gap-2">
                 <button
                     onClick={(e) => {
@@ -91,6 +160,21 @@ const SpatiaNode = ({ data }) => {
                         className="bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-500 hover:text-yellow-300 border border-yellow-600/50 px-3 py-1 text-[10px] uppercase tracking-widest font-bold rounded transition-colors"
                     >
                         Witness
+                    </button>
+                )}
+
+                {parseInt(status) === 0 && (
+                    <button
+                        data-testid="summon-btn"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm("Summon AI to implement this Hollow construct?")) {
+                                axios.post('/api/summon', { atom_id: id }).catch(err => alert(err.message));
+                            }
+                        }}
+                        className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 hover:text-blue-300 border border-blue-600/50 px-3 py-1 text-[10px] uppercase tracking-widest font-bold rounded transition-colors shadow-[0_0_10px_rgba(59,130,246,0.2)]"
+                    >
+                        Summon
                     </button>
                 )}
             </div>
