@@ -3,6 +3,8 @@ import { ReactFlow, Background, Controls, useNodesState, useEdgesState } from '@
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
 import SpatiaNode from './nodes/SpatiaNode';
+import SpatiaLogo from './components/SpatiaLogo';
+import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 
 const nodeTypes = {
   spatia: SpatiaNode,
@@ -108,7 +110,7 @@ export default function App() {
       // Determine if we should refetch
       try {
         const data = JSON.parse(event.data);
-        if (data.type === 'db_update' || data.type === 'update' || data.type === 'thread_new') {
+        if (data.type === 'db_update' || data.type === 'update' || data.type === 'thread_new' || data.type === 'world_reset') {
           fetchAtoms();
         }
       } catch (e) {
@@ -141,7 +143,6 @@ export default function App() {
       setNodes((nds) => {
         return nds.map((node) => {
           // Skip collision check for Envelopes themselves
-          // We can identify them by checking if they are in the envelopes list
           const isEnvelope = envelopes.some(e => e.id === node.id);
           if (isEnvelope) return node;
 
@@ -158,7 +159,6 @@ export default function App() {
           for (const other of nds) {
             if (node.id === other.id) continue;
 
-            // Skip collision if 'other' is an envelope
             const isOtherEnvelope = envelopes.some(e => e.id === other.id);
             if (isOtherEnvelope) continue;
 
@@ -181,22 +181,15 @@ export default function App() {
           }
 
           // 2. Envelope Policy Collision
-          // Check if center of node is inside an envelope
           const cx = r1.x + r1.w / 2;
           const cy = r1.y + r1.h / 2;
 
           for (const env of envelopes) {
-            // Debug ID match
-            console.log(`Comparing '${node.id}' === '${env.id}'`);
             if (String(node.id) === String(env.id)) continue;
 
-            // env: x, y, w, h
             if (cx >= env.x && cx <= env.x + env.w &&
               cy >= env.y && cy <= env.y + env.h) {
 
-              // Inside Envelope. Check Domain.
-              // If Envelope domain is different from Node domain (and Node domain is not generic/undefined?)
-              // Let's assume strict matching for now.
               const nodeDomain = node.data.domain || 'generic';
               const envDomain = env.domain;
 
@@ -207,7 +200,6 @@ export default function App() {
             }
           }
 
-          // Apply visual feedback
           if (hasConflict) {
             return {
               ...node,
@@ -215,7 +207,6 @@ export default function App() {
               className: 'conflict-fold'
             };
           } else {
-            // Reset style if no conflict (remove specific fields)
             const newStyle = { ...node.style };
             delete newStyle.zIndex;
             delete newStyle.boxShadow;
@@ -228,10 +219,10 @@ export default function App() {
           }
         });
       });
-    }, 500); // Check every 500ms
+    }, 500);
 
     return () => clearInterval(interval);
-  }, [setNodes, envelopes]); // Re-run when envelopes change
+  }, [setNodes, envelopes]);
 
   const handleShatter = async (e) => {
     e.preventDefault();
@@ -240,7 +231,6 @@ export default function App() {
       await axios.post('/api/shatter', { path: shatterPath, content: shatterContent || undefined });
       setShatterPath('');
       setShatterContent('');
-      // Short delay to allow DB update
       setTimeout(fetchAtoms, 500);
     } catch (err) {
       alert("Shatter failed: " + err.message);
@@ -249,18 +239,11 @@ export default function App() {
 
   return (
     <div className="w-screen h-screen bg-[#050505] text-white overflow-hidden flex flex-col font-sans relative">
+      <SpatiaLogo className="absolute top-6 right-6 w-12 h-12 z-50 opacity-50 hover:opacity-100 transition-opacity cursor-pointer" theme="dark" />
+      <WorkspaceSwitcher />
+
       {/* Background Envelopes Layer */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-        {/* We need to apply same transform as ReactFlow viewport to match positions? 
-              Actually, ReactFlow has a Background component. 
-              Ideally envelopes should be NODES in ReactFlow but 'group' type or simple background nodes.
-              Or we can just use ReactFlow nodes with zIndex -1.
-              
-              Let's try creating them as ReactFlow nodes in fetchAtoms instead? 
-              That ensures they pan/zoom correctly.
-              
-              RE-PLAN: Add envelopes to 'nodes' list with a special type or style.
-          */}
       </div>
 
       {/* Shatter Portal */}
@@ -335,4 +318,3 @@ export default function App() {
     </div>
   );
 }
-

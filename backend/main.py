@@ -108,6 +108,7 @@ async def lifespan(app: FastAPI):
         print(f"Startup Error: Failed to init DB: {e}")
     
     # Start Background Watcher
+    global watcher_task
     watcher_task = asyncio.create_task(watch_sentinel_db())
     
     yield
@@ -128,6 +129,88 @@ async def broadcast_event(data: dict):
         await queue.put(payload)
 
 app = FastAPI(lifespan=lifespan)
+
+# Global Watcher Control
+watcher_task: Optional[asyncio.Task] = None
+
+@app.get("/api/workspaces")
+async def get_workspaces():
+    workspaces = []
+    if os.path.exists("workspaces"):
+        for name in os.listdir("workspaces"):
+            if os.path.isdir(os.path.join("workspaces", name)):
+                workspaces.append(name)
+    return sorted(workspaces)
+
+class WorkspaceSwitch(BaseModel):
+    name: str
+
+@app.post("/api/workspace/switch")
+async def switch_workspace(req: WorkspaceSwitch):
+    global watcher_task
+    target_ws = req.name
+    ws_path = os.path.join("workspaces", target_ws)
+    
+    if not os.path.exists(ws_path):
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    print(f"Switching to workspace: {target_ws}")
+
+    # 1. Stop Watcher
+    if watcher_task and not watcher_task.done():
+        print("Stopping DB Watcher...")
+        watcher_task.cancel()
+        try:
+            await watcher_task
+        except asyncio.CancelledError:
+            pass
+            
+    # 2. Update Symlinks
+    # Remove old symlinks
+    try:
+        if os.path.islink(DB_PATH) or os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        geo_link = ".spatia/geometry.sp"
+        if os.path.islink(geo_link) or os.path.exists(geo_link):
+            os.remove(geo_link)
+    except Exception as e:
+        print(f"Error removing links: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to remove symlinks: {e}")
+        
+    # Create new symlinks
+    try:
+        # Calculate relative paths to target workspace files
+        # Target: workspaces/<name>/sentinel.db
+        # Source: DB_PATH (e.g. .spatia/sentinel.db or test_sentinel.db)
+        
+        # 1. Sentinel DB
+        target_db_abs = os.path.abspath(os.path.join("workspaces", target_ws, "sentinel.db"))
+        link_db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+        rel_target_db = os.path.relpath(target_db_abs, link_db_dir)
+        
+        os.symlink(rel_target_db, DB_PATH)
+
+        # 2. Geometry
+        geo_link = ".spatia/geometry.sp"
+        target_geo_abs = os.path.abspath(os.path.join("workspaces", target_ws, "geometry.sp"))
+        link_geo_dir = os.path.dirname(os.path.abspath(geo_link))
+        rel_target_geo = os.path.relpath(target_geo_abs, link_geo_dir)
+        
+        os.symlink(rel_target_geo, geo_link)
+        
+    except Exception as e:
+        print(f"Error creating links: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create symlinks: {e}")
+        
+    print(f"Symlinks updated to {target_ws}")
+
+    # 3. Restart Watcher
+    watcher_task = asyncio.create_task(watch_sentinel_db())
+    
+    # 4. Broadcast Reset
+    await broadcast_event({"type": "world_reset"})
+    
+    return {"status": "switched", "workspace": target_ws}
 
 
 

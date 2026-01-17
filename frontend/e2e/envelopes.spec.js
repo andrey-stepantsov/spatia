@@ -26,6 +26,15 @@ test.describe('Spatial Envelopes & Conflict Fold', () => {
             });
         });
 
+        // Mock SSE to prevent hang
+        await page.route('/api/events', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'text/event-stream',
+                body: 'event: connected\ndata: {}\n\n'
+            });
+        });
+
         // Debugging: Log console messages
         page.on('console', msg => console.log(`[Browser Console] ${msg.text()}`));
         page.on('pageerror', err => console.log(`[Browser Error] ${err.message}`));

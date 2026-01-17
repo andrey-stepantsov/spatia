@@ -20,6 +20,15 @@ test.describe('Visual Threads & Conflict Fold', () => {
             });
         });
 
+        // Mock SSE
+        await page.route('/api/events', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'text/event-stream',
+                body: 'event: connected\ndata: {}\n\n'
+            });
+        });
+
         // 2. Go to page
         await page.goto('/');
 
@@ -47,6 +56,15 @@ test.describe('Visual Threads & Conflict Fold', () => {
 
         await page.route('/api/threads', async route => {
             await route.fulfill({ json: [] });
+        });
+
+        // Mock SSE
+        await page.route('/api/events', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'text/event-stream',
+                body: 'event: connected\ndata: {}\n\n'
+            });
         });
 
         await page.goto('/');

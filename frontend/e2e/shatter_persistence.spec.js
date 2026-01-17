@@ -5,6 +5,14 @@ test.describe('Shatter & Persistence', () => {
         // Default mocks to avoid errors on load
         await page.route('/api/atoms', async route => route.fulfill({ json: [] }));
         await page.route('/api/threads', async route => route.fulfill({ json: [] }));
+        // Mock SSE
+        await page.route('/api/events', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'text/event-stream',
+                body: 'event: connected\ndata: {}\n\n'
+            });
+        });
     });
 
     test('should shatter a new atom and display it', async ({ page }) => {

@@ -16,6 +16,15 @@ test.describe('Ghost Mode & Time Travel', () => {
             await route.fulfill({ json: [] });
         });
 
+        // Mock SSE
+        await page.route('/api/events', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'text/event-stream',
+                body: 'event: connected\ndata: {}\n\n'
+            });
+        });
+
         await page.goto('/');
     });
 
