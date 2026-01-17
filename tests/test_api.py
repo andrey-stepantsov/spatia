@@ -8,16 +8,11 @@ def test_read_main(client):
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
-def test_update_geometry(client):
+def test_update_geometry(client, mock_db):
     # Manually insert an atom to test geometry update
-    # We need to use the same DB as the client (TEST_DB_PATH)
-    from backend.main import DB_PATH
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    cursor = mock_db.cursor()
     cursor.execute("INSERT INTO atoms (id, type, content) VALUES ('test_atom', 'text', 'hello')")
-    conn.commit()
-    conn.close()
+    mock_db.commit()
 
     # Update geometry
     payload = [{"atom_id": "test_atom", "x": 100, "y": 200}]
@@ -40,7 +35,7 @@ def test_update_geometry(client):
 from unittest.mock import patch, AsyncMock
 
 @patch('backend.main.run_subprocess_async', new_callable=AsyncMock)
-def test_shatter_mocked(mock_run, client):
+def test_shatter_mocked(mock_run, client, mock_db):
     # Mock return value
     mock_run.return_value = "ATOM_ID: new_atom_123"
     
@@ -51,12 +46,9 @@ def test_shatter_mocked(mock_run, client):
     assert response.json() == {"atom_id": "new_atom_123"}
     
     # Verify geometry initialized to 0,0
-    from backend.main import DB_PATH
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    cursor = mock_db.cursor()
     cursor.execute("SELECT x, y FROM geometry WHERE atom_id = 'new_atom_123'")
     row = cursor.fetchone()
-    conn.close()
     
     assert row is not None
     assert row[0] == 0
