@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="frontend/src/assets/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="frontend/src/assets/logo-light.png">
+    <img alt="Spatia Logo" src="frontend/src/assets/logo-light.png" width="300">
+  </picture>
+</p>
+
 # Spatia
 
 **Geometric Lisp and Semantic Graph Protocol**
