@@ -28,53 +28,84 @@ async def watch_sentinel_db():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Reset Zombie Atoms (Status 2 -> 1)
-    if os.path.exists(DB_PATH):
+    # Startup
+    try:
+        # Connect (creates file if missing)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # 1. Reset Zombie Atoms (Status 2 -> 1) - Only if atoms table exists
+        # We can try it, catch OperationalError if table missing
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
             cursor.execute("UPDATE atoms SET status = 1 WHERE status = 2")
             if cursor.rowcount > 0:
                 print(f"Startup: Reset {cursor.rowcount} zombie witness(es) back to claim status.")
                 conn.commit()
-            
-            # Ensure threads table exists
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS threads (
-                    source_id TEXT,
-                    target_id TEXT,
-                    PRIMARY KEY (source_id, target_id)
-                )
-            """)
-            conn.commit()
+        except sqlite3.OperationalError:
+            # Table probably doesn't exist yet, which is fine
+            pass
+        
+        # 2. Ensure Schema
+        
+        # Ensure atoms table exists (missing from original lifespan, maybe it was manual?)
+        # Adding it for completeness/tests
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS atoms (
+                id TEXT PRIMARY KEY,
+                type TEXT,
+                domain TEXT,
+                content TEXT,
+                status INTEGER DEFAULT 0,
+                hash TEXT,
+                last_witnessed TEXT
+            )
+        """)
 
-            # Ensure portals table exists
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS portals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    atom_id TEXT,
-                    path TEXT,
-                    description TEXT,
-                    created_at TEXT
-                )
-            """)
-            conn.commit()
+        # Ensure threads table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS threads (
+                source_id TEXT,
+                target_id TEXT,
+                PRIMARY KEY (source_id, target_id)
+            )
+        """)
+        
+        # Ensure portals table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS portals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                atom_id TEXT,
+                path TEXT,
+                description TEXT,
+                created_at TEXT
+            )
+        """)
 
-            # Ensure envelopes table exists (Phase II)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS envelopes (
-                    id TEXT PRIMARY KEY,
-                    domain TEXT,
-                    x INTEGER,
-                    y INTEGER,
-                    w INTEGER,
-                    h INTEGER
-                )
-            """)
-            conn.commit()
-            
-            conn.close()
-        except Exception as e:
-            print(f"Startup Error: Failed to reset zombie atoms or init DB: {e}")
+        # Ensure envelopes table exists (Phase II)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS envelopes (
+                id TEXT PRIMARY KEY,
+                domain TEXT,
+                x INTEGER,
+                y INTEGER,
+                w INTEGER,
+                h INTEGER
+            )
+        """)
+        
+        # Ensure geometry table (used in main.py but not in original setup?)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS geometry (
+                atom_id TEXT PRIMARY KEY,
+                x INTEGER,
+                y INTEGER
+            )
+        """)
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Startup Error: Failed to init DB: {e}")
     
     # Start Background Watcher
     watcher_task = asyncio.create_task(watch_sentinel_db())

@@ -39,8 +39,8 @@ test.describe('Visual Threads & Conflict Fold', () => {
         await page.route('/api/atoms', async route => {
             await route.fulfill({
                 json: [
-                    { id: 'col1', content: 'Collider 1', x: 0, y: 0, status: 1 },
-                    { id: 'col2', content: 'Collider 2', x: 0, y: 400, status: 1 } // Far below
+                    { id: 'col1', content: 'Collider 1', x: 0, y: 150, status: 1 },
+                    { id: 'col2', content: 'Collider 2', x: 0, y: 550, status: 1 } // Far below
                 ]
             });
         });

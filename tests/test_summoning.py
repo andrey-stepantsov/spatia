@@ -28,6 +28,8 @@ def setup_teardown():
     
     yield
     
+    # 3. Teardown
+    backend.main.DB_PATH = '.spatia/sentinel.db' # Revert to default
     if os.path.exists(TEST_DB):
         os.remove(TEST_DB)
     # Clean up logs

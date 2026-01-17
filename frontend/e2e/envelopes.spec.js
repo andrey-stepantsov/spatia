@@ -6,7 +6,7 @@ test.describe('Spatial Envelopes & Conflict Fold', () => {
         await page.route('/api/atoms', async route => {
             await route.fulfill({
                 json: [
-                    { id: 'doc.md', content: 'Documentation', x: 0, y: 0, status: 1, domain: 'Documentation' },
+                    { id: 'doc.md', content: 'Documentation', x: 0, y: 150, status: 1, domain: 'Documentation' },
                     { id: 'firmware.c', content: 'Firmware Code', x: 300, y: 0, status: 1, domain: 'Firmware' }
                 ]
             });
@@ -51,17 +51,19 @@ test.describe('Spatial Envelopes & Conflict Fold', () => {
     });
 
     test('should trigger conflict fold when Documentation node enters Firmware Envelope', async ({ page }) => {
-        // 1. Locate the "Documentation" node (currently at 0,0 - outside envelope)
+        // 1. Locate the "Documentation" node (currently at 0,150 - outside envelope)
         const docNode = page.locator('.react-flow__node-spatia').filter({ hasText: 'Documentation' });
 
         // Ensure strictly no conflict initially
         await expect(docNode).not.toHaveClass(/conflict-fold/);
 
         // 2. Drag it into the Envelope (Envelope starts at x:200)
-        // We move it to x:250, y:50
+        // We move it to x:250, y:150 (Y stays same)
+        /*
         await docNode.dragTo(page.locator('.react-flow__pane'), {
             targetPosition: { x: 300, y: 100 } // approximate screen coords relative to pane might be tricky
         });
+        */
 
         // Alternative: Use mouse actions if dragTo is flaky with canvas
         const box = await docNode.boundingBox();
