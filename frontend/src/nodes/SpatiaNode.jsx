@@ -152,7 +152,7 @@ const SpatiaNode = ({ data }) => {
                     {showLogs ? 'Hide Logs' : 'Logs'}
                 </button>
 
-                {parseInt(status) === 1 && (
+                {(parseInt(status) === 1 || parseInt(status) === 0) && (
                     <button
                         onClick={(e) => {
                             e.stopPropagation();

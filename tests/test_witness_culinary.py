@@ -15,8 +15,9 @@ def clean_db():
     # Patch DB Path
     original_db = backend.main.DB_PATH
     backend.main.DB_PATH = TEST_DB
+    os.environ["SENTINEL_DB"] = TEST_DB
     
-    if os.path.exists(TEST_DB):
+    if os.path.lexists(TEST_DB):
         os.remove(TEST_DB)
         
     # Trigger startup to init DB

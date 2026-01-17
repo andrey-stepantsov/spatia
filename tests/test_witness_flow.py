@@ -12,7 +12,8 @@ TEST_DB = "test_sentinel.db"
 def setup_teardown():
     # Setup: Override DB_PATH
     backend.main.DB_PATH = TEST_DB
-    if os.path.exists(TEST_DB):
+    os.environ["SENTINEL_DB"] = TEST_DB
+    if os.path.lexists(TEST_DB):
         os.remove(TEST_DB)
     
     # Initialize DB schema (Partial for what we need)
@@ -25,6 +26,8 @@ def setup_teardown():
     cursor.execute("INSERT INTO atoms VALUES ('test_atom_success', 'path/a', 'print(\"hello\")', 'hash', 'software', 1, NULL, 'now')")
     # 2. Failure Candidate (Syntax Error)
     cursor.execute("INSERT INTO atoms VALUES ('test_atom_fail', 'path/b', 'print(\"oops\"', 'hash', 'software', 1, NULL, 'now')")
+    # 3. Lisp Intent Candidate (Should Pass now)
+    cursor.execute("INSERT INTO atoms VALUES ('test_atom_lisp', 'path/c', ':intent \"To verify\" (defun foo ())', 'hash', 'software', 1, NULL, 'now')")
     
     conn.commit()
     conn.close()
@@ -65,3 +68,18 @@ def test_witness_failure_flow():
         status = conn.execute("SELECT status FROM atoms WHERE id='test_atom_fail'").fetchone()[0]
         print(f"[TEST] Final Status for fail atom: {status}")
         assert status == 1
+
+def test_witness_lisp_intent():
+    """Test Intent: Claim (1) -> Witness (2) -> Endorsed (3) [Skipped Python Check]"""
+    
+    print("\n[TEST] Sending witness request for Lisp Intent...")
+    response = client.post("/api/witness", json={"atom_id": "test_atom_lisp"})
+    
+    assert response.status_code == 200
+    assert response.json() == {"status": "witnessing", "atom_id": "test_atom_lisp"}
+    
+    # 2. Verify Final Status
+    with sqlite3.connect(TEST_DB) as conn:
+        status = conn.execute("SELECT status FROM atoms WHERE id='test_atom_lisp'").fetchone()[0]
+        print(f"[TEST] Final Status for lisp atom: {status}")
+        assert status == 3

@@ -4,7 +4,7 @@ import '@xyflow/react/dist/style.css';
 import axios from 'axios';
 import SpatiaNode from './nodes/SpatiaNode';
 import SpatiaLogo from './components/SpatiaLogo';
-import WorkspaceSwitcher from './components/WorkspaceSwitcher';
+import WorkspaceSelector from './components/WorkspaceSelector';
 
 const nodeTypes = {
   spatia: SpatiaNode,
@@ -240,7 +240,7 @@ export default function App() {
   return (
     <div className="w-screen h-screen bg-[#050505] text-white overflow-hidden flex flex-col font-sans relative">
       <SpatiaLogo className="absolute top-6 right-6 w-12 h-12 z-50 opacity-50 hover:opacity-100 transition-opacity cursor-pointer" theme="dark" />
-      <WorkspaceSwitcher />
+      <WorkspaceSelector />
 
       {/* Background Envelopes Layer */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">

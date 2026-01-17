@@ -394,7 +394,7 @@ async def summon_atom(request: SummonRequest, background_tasks: BackgroundTasks)
         os.makedirs(log_dir, exist_ok=True)
         summon_log_path = os.path.join(log_dir, f"{atom_id}.summon")
         
-        prompt_context = f"=== SUMMONING CONTEXT ===\nAtom: {atom_id}\nIntent:\n{content}\n\n=== PORTALS ===\n"
+        prompt_context = f"=== SUMMONING CONTEXT ===\nAtom: {atom_id}\nInstruction: You are provided with Slang B (Lisp Intent). Your goal is to provide a Slang A (Python/C++/YAML) implementation. You must completely replace the Lisp placeholder with executable code for the assigned domain.\nIntent:\n{content}\n\n=== PORTALS ===\n"
         for p in portal_paths:
             prompt_context += f"- {p}\n"
             

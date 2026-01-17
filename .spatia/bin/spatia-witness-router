@@ -6,10 +6,12 @@ ATOM_ID=$1
 DB="${SENTINEL_DB:-.spatia/sentinel.db}"
 LOG_FILE=".spatia/logs/witness.log"
 
+
 if [ -z "$ATOM_ID" ]; then
     echo "Usage: $0 <atom_id>"
     exit 1
 fi
+
 
 if [ ! -f "$DB" ]; then
     printf "Error: Sentinel DB missing at %s.\n" "$DB"
@@ -86,10 +88,23 @@ if [ "$EXIT_CODE" == "1" ]; then
     # Early failure in domain logic
     :
 elif [ -z "$GOTO_CLEANUP" ]; then
-    # Dispatch to Hermetic Witness (Nix) for visual/standard verification
-    # Capture output to per-atom log
-    echo "$CONTENT" | nix-shell --pure .spatia/witness/shell.nix --run "python3 .spatia/witness/verify.py" >> "$ATOM_LOG" 2>&1
-    EXIT_CODE=$?
+    # Phase IV check: Verify if content is "Intent" (Slang B / Lisp)
+    # If it is, we treat it as a valid "Blueprint" and skip Python verification.
+    
+    # Check for Lisp-like start (semicolon for intent key or open paren)
+    # Check for Lisp-like start (semicolon for intent key or open paren)
+    # Regex: Start of line, optional whitespace, followed by (, :, or ;
+    REGEX='^[[:space:]]*[\(:;]'
+    if [[ "$CONTENT" =~ $REGEX ]]; then
+        printf "\033[1;35m[WITNESS]\033[0m Detected Intent/Blueprint (Slang B). Skipping Python verification.\n"
+        printf "[%s] Validated Intent Structure\n" "$(timestamp)" >> "$ATOM_LOG"
+        EXIT_CODE=0
+    else
+        # Dispatch to Hermetic Witness (Nix) for visual/standard verification (Python/Slang A)
+        # Capture output to per-atom log
+        echo "$CONTENT" | nix-shell --pure .spatia/witness/shell.nix --run "python3 .spatia/witness/verify.py" >> "$ATOM_LOG" 2>&1
+        EXIT_CODE=$?
+    fi
 fi
 
 # Append atom log content to global log for posterity (optional, but good for trace)

@@ -3,9 +3,9 @@
 # We ignore the local database and logs
 
 .spatia/logs/*
-.spatia/sentinel.db
-.spatia/sentinel.db-journal
-.spatia/sentinel.db-wal
+**/sentinel.db
+**/sentinel.db-journal
+**/sentinel.db-wal
 .spatia/portals/*
 .spatia/witness/*
 test_sentinel.db
