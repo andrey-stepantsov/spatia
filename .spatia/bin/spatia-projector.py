@@ -37,6 +37,8 @@ def project():
         cursor.execute("SELECT source_id, target_id FROM threads")
         threads = cursor.fetchall()
     except sqlite3.OperationalError:
+        pass
+
     # Fetch Envelopes
     try:
         cursor.execute("SELECT id, domain, x, y, w, h FROM envelopes")

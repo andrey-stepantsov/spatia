@@ -140,6 +140,11 @@ export default function App() {
     const interval = setInterval(() => {
       setNodes((nds) => {
         return nds.map((node) => {
+          // Skip collision check for Envelopes themselves
+          // We can identify them by checking if they are in the envelopes list
+          const isEnvelope = envelopes.some(e => e.id === node.id);
+          if (isEnvelope) return node;
+
           let hasConflict = false;
           // Simple AABB collision with other nodes
           const r1 = {
@@ -152,6 +157,11 @@ export default function App() {
           // 1. Node-Node Collision
           for (const other of nds) {
             if (node.id === other.id) continue;
+
+            // Skip collision if 'other' is an envelope
+            const isOtherEnvelope = envelopes.some(e => e.id === other.id);
+            if (isOtherEnvelope) continue;
+
             const r2 = {
               x: other.position.x,
               y: other.position.y,
@@ -176,7 +186,10 @@ export default function App() {
           const cy = r1.y + r1.h / 2;
 
           for (const env of envelopes) {
-            if (node.id === env.id) continue;
+            // Debug ID match
+            console.log(`Comparing '${node.id}' === '${env.id}'`);
+            if (String(node.id) === String(env.id)) continue;
+
             // env: x, y, w, h
             if (cx >= env.x && cx <= env.x + env.w &&
               cy >= env.y && cy <= env.y + env.h) {
