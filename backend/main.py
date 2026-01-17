@@ -11,6 +11,9 @@ import datetime
 from pydantic import BaseModel
 
 from watchfiles import awatch
+from backend.projector import Projector
+
+projector = Projector()
 
 DB_PATH = '.spatia/sentinel.db'
 
@@ -243,6 +246,7 @@ class Portal(BaseModel):
 
 class SummonRequest(BaseModel):
     atom_id: str
+    model: Optional[str] = "gemini-2.5-flash"
 
 async def run_subprocess_async(cmd, env=None):
     try:
@@ -386,45 +390,40 @@ async def summon_atom(request: SummonRequest, background_tasks: BackgroundTasks)
             raise HTTPException(status_code=400, detail=f"Atom is not in Hollow state (Status 0). Current: {status}")
             
         # 2. Fetch Portals
-        cursor.execute("SELECT path FROM portals WHERE atom_id = ?", (atom_id,))
-        portal_paths = [r['path'] for r in cursor.fetchall()]
+        cursor.execute("SELECT * FROM portals WHERE atom_id = ?", (atom_id,))
+        portals = [dict(r) for r in cursor.fetchall()]
         
-        # 3. Construct Summoning Context (Log it)
-        log_dir = ".spatia/logs"
-        os.makedirs(log_dir, exist_ok=True)
-        summon_log_path = os.path.join(log_dir, f"{atom_id}.summon")
+        # 3. Fetch Neighbors
+        cursor.execute("SELECT target_id FROM threads WHERE source_id = ?", (atom_id,))
+        neighbors = [r['target_id'] for r in cursor.fetchall()]
+
+        # 4. Summon via Projector
+        new_content = projector.summon(atom_id, content, portals, neighbors, request.model)
         
-        prompt_context = f"=== SUMMONING CONTEXT ===\nAtom: {atom_id}\nInstruction: You are provided with Slang B (Lisp Intent). Your goal is to provide a Slang A (Python/C++/YAML) implementation. You must completely replace the Lisp placeholder with executable code for the assigned domain.\nIntent:\n{content}\n\n=== PORTALS ===\n"
-        for p in portal_paths:
-            prompt_context += f"- {p}\n"
-            
-        with open(summon_log_path, "w") as f:
-            f.write(prompt_context)
-            
-        # 4. Simulate Generation (Append Marker)
-        # In a real AI implementation, we would call the LLM here.
-        # For now, we append a marker to the file content.
-        new_content = content + "\n\n;; SUMMONED BY SPATIA\n;; (AI Implementation would go here)"
+        # Strip Markdown Code Blocks if present
+        if new_content.strip().startswith("```"):
+             lines = new_content.strip().split("\n")
+             # Remove first line if it starts with ```
+             if lines[0].startswith("```"):
+                 lines = lines[1:]
+             # Remove last line if it starts with ```
+             if lines and lines[-1].startswith("```"):
+                 lines = lines[:-1]
+             new_content = "\n".join(lines)
         
         # Update Content and Status to 1 (Claim)
         cursor.execute("UPDATE atoms SET content = ?, status = 1 WHERE id = ?", (new_content, atom_id))
         conn.commit()
 
+        # Broadcast Status 1 (Yellow/Claim)
+        await broadcast_event({"type": "update", "atom_id": atom_id})
+
         # Update file on disk if it matches atom_id (if atom_id is path)
-        # Only if the atom_id is a valid path string and checking existence might be good, 
-        # but for now we assume synchronization via 'spatia-shatter' or manual edit.
-        # Actually, if we update content in DB, we should probably update the file too if it exists.
         if os.path.exists(atom_id):
              with open(atom_id, "w") as f:
                  f.write(new_content)
 
     # 5. Trigger Witness (Status 2 -> 3/1) via Background
-    # We call the internal helper which expects the atom to be ready for witnessing.
-    # The witness endpoint sets status to 2 first. 
-    # Let's verify if run_witness_process handles status transition 2->3.
-    # Yes, run_witness_process calls script, then updates to 3 or 1.
-    # But we need to set it to 2 first to show "Witnessing".
-    
     with get_db_connection() as conn:
         conn.execute("UPDATE atoms SET status = 2 WHERE id = ?", (atom_id,))
         conn.commit()
@@ -432,7 +431,7 @@ async def summon_atom(request: SummonRequest, background_tasks: BackgroundTasks)
     background_tasks.add_task(run_witness_process, atom_id)
     
     await broadcast_event({"type": "update", "atom_id": atom_id})
-    return {"status": "summoned", "atom_id": atom_id}
+    return {"status": "summoned", "atom_id": atom_id, "model": request.model}
 
 class WitnessRequest(BaseModel):
     atom_id: str

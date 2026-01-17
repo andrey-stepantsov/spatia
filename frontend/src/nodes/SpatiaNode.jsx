@@ -10,6 +10,7 @@ const SpatiaNode = ({ data }) => {
     const [showPortals, setShowPortals] = useState(false);
     const [portals, setPortals] = useState([]);
     const [newPortal, setNewPortal] = useState('');
+    const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash");
 
     const fetchPortals = () => {
         axios.get(`/api/portals/${id}`)
@@ -101,6 +102,20 @@ const SpatiaNode = ({ data }) => {
                         <span className="text-xs text-gray-600">{showPortals ? '▼' : '▶'}</span>
                     </div>
 
+                    {/* Model Selector */}
+                    <div className="mb-2 flex items-center gap-2">
+                        <label className="text-[10px] text-gray-500 font-bold uppercase">Model:</label>
+                        <select
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value)}
+                            className="bg-black/50 border border-gray-700 rounded text-[10px] text-gray-300 px-1 py-0.5 outline-none focus:border-blue-500"
+                        >
+                            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                            <option value="gemini-3-flash">Gemini 3 Flash</option>
+                        </select>
+                    </div>
+
                     {showPortals && (
                         <div className="space-y-2">
                             {/* List */}
@@ -170,7 +185,7 @@ const SpatiaNode = ({ data }) => {
                         onClick={(e) => {
                             e.stopPropagation();
                             if (confirm("Summon AI to implement this Hollow construct?")) {
-                                axios.post('/api/summon', { atom_id: id }).catch(err => alert(err.message));
+                                axios.post('/api/summon', { atom_id: id, model: selectedModel }).catch(err => alert(err.message));
                             }
                         }}
                         className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 hover:text-blue-300 border border-blue-600/50 px-3 py-1 text-[10px] uppercase tracking-widest font-bold rounded transition-colors shadow-[0_0_10px_rgba(59,130,246,0.2)]"

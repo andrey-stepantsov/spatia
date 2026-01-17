@@ -12,6 +12,13 @@
 
 Spatia is a framework for Human-AI symmetry that treats code as a **Universal Semantic Graph (USG)** rather than a collection of flat files. It introduces a protocol for verifying "Atoms" (semantic units of code) through a rigorous **Witness Protocol**, enabling a transition from simple text editing to high-trust semantic engineering.
 
+## Milestone: Phase 11 - Gemini 2.5 Summoning Integration
+**v0.11.0**
+- **Projector Core**: Implemented AI bridge using `google-genai` SDK.
+- **Summoning Gateway**: POST `/api/summon` endpoint for transforming Lisp Intent (Slang B) into implementation (Slang A).
+- **Gemini Integration**: Supports `gemini-2.5-flash`, `gemini-2.5-pro`, and `gemini-3-flash` for variable latency/intelligence loops.
+- **Symmetry Translation**: Automated context gathering from Portals and Thread Neighbors.
+
 ## Core Philosophy
 
 *   **Atoms over Files:** Code is decomposed into discrete semantic units called Atoms.
