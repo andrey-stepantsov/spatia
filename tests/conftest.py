@@ -16,6 +16,7 @@ def mock_db():
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE atoms (id TEXT PRIMARY KEY, type TEXT, status INTEGER DEFAULT 1, content TEXT, hash TEXT, last_witnessed TEXT)")
     cursor.execute("CREATE TABLE geometry (atom_id TEXT PRIMARY KEY, x INTEGER, y INTEGER)")
+    cursor.execute("CREATE TABLE envelopes (id TEXT PRIMARY KEY, domain TEXT, x INTEGER, y INTEGER, w INTEGER, h INTEGER)")
     conn.commit()
     return conn
 

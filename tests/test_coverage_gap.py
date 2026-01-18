@@ -50,7 +50,9 @@ def test_get_logs_not_found():
 def test_witness_404():
     response = client.post("/api/witness", json={"atom_id": "ghost_atom"})
     assert response.status_code == 404
-    assert "Atom not found" in response.json()["detail"]
+    assert response.status_code == 404
+    # Updated to check new error envelope
+    assert "Atom not found" in response.json()["error"]["message"]
 
 @patch('backend.main.broadcast_event', new_callable=AsyncMock)
 def test_witness_broadcasts_event(mock_broadcast):

@@ -1,7 +1,7 @@
 import React, { memo, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 
-import axios from 'axios';
+import api from '../utils/api';
 
 const SpatiaNode = ({ data }) => {
     const { content, status, domain, id } = data;
@@ -13,7 +13,7 @@ const SpatiaNode = ({ data }) => {
     const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash");
 
     const fetchPortals = () => {
-        axios.get(`/api/portals/${id}`)
+        api.get(`/api/portals/${id}`)
             .then(res => setPortals(res.data))
             .catch(console.error);
     };
@@ -21,7 +21,7 @@ const SpatiaNode = ({ data }) => {
     const addPortal = (e) => {
         e.preventDefault();
         if (!newPortal) return;
-        axios.post('/api/portals', { atom_id: id, path: newPortal })
+        api.post('/api/portals', { atom_id: id, path: newPortal })
             .then(() => {
                 setNewPortal('');
                 fetchPortals();
@@ -155,7 +155,7 @@ const SpatiaNode = ({ data }) => {
                         if (!showLogs) {
                             setShowLogs(true);
                             setLogs(null);
-                            axios.get(`/api/atoms/${id}/logs`)
+                            api.get(`/api/atoms/${id}/logs`)
                                 .then(res => setLogs(res.data.logs))
                                 .catch(err => setLogs("No logs available or failed to fetch."));
                         } else {
@@ -171,7 +171,7 @@ const SpatiaNode = ({ data }) => {
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
-                            axios.post('/api/witness', { atom_id: id }).catch(console.error);
+                            api.post('/api/witness', { atom_id: id }).catch(console.error);
                         }}
                         className="bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-500 hover:text-yellow-300 border border-yellow-600/50 px-3 py-1 text-[10px] uppercase tracking-widest font-bold rounded transition-colors"
                     >
@@ -185,7 +185,7 @@ const SpatiaNode = ({ data }) => {
                         onClick={(e) => {
                             e.stopPropagation();
                             if (confirm("Summon AI to implement this Hollow construct?")) {
-                                axios.post('/api/summon', { atom_id: id, model: selectedModel }).catch(err => alert(err.message));
+                                api.post('/api/summon', { atom_id: id, model: selectedModel }).catch(err => alert(err.message));
                             }
                         }}
                         className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 hover:text-blue-300 border border-blue-600/50 px-3 py-1 text-[10px] uppercase tracking-widest font-bold rounded transition-colors shadow-[0_0_10px_rgba(59,130,246,0.2)]"
@@ -199,7 +199,7 @@ const SpatiaNode = ({ data }) => {
                         onClick={(e) => {
                             e.stopPropagation();
                             if (confirm("Revive this fossil? The current version will be archived.")) {
-                                axios.post('/api/revive', { fossil_id: id }).catch(err => alert(err.message));
+                                api.post('/api/revive', { fossil_id: id }).catch(err => alert(err.message));
                             }
                         }}
                         className="bg-purple-900/30 hover:bg-purple-900/50 text-purple-400 hover:text-purple-300 border border-purple-800/50 px-3 py-1 text-[10px] uppercase tracking-widest font-bold rounded transition-colors"

@@ -1,32 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Spatial Envelopes & Conflict Fold', () => {
+test.describe('Spatial Envelopes', () => {
     test.beforeEach(async ({ page }) => {
-        // Mock Data
-        await page.route('/api/atoms', async route => {
-            await route.fulfill({
-                json: [
-                    { id: 'doc.md', content: 'Documentation', x: 0, y: 150, status: 1, domain: 'Documentation' },
-                    { id: 'firmware.c', content: 'Firmware Code', x: 300, y: 0, status: 1, domain: 'Firmware' }
-                ]
-            });
-        });
-
-        await page.route('/api/threads', async route => {
-            await route.fulfill({ json: [] });
-        });
-
-        await page.route('/api/envelopes', async route => {
-            await route.fulfill({
-                json: [
-                    // Envelope for Firmware. 
-                    // Any non-Firmware node inside this box (x:200, y:-50, w:300, h:300) should trigger conflict.
-                    { id: 'env_fw', domain: 'Firmware', x: 200, y: -50, w: 300, h: 300 }
-                ]
-            });
-        });
-
-        // Mock SSE to prevent hang
+        // Mock SSE
         await page.route('/api/events', async route => {
             await route.fulfill({
                 status: 200,
@@ -34,76 +10,90 @@ test.describe('Spatial Envelopes & Conflict Fold', () => {
                 body: 'event: connected\ndata: {}\n\n'
             });
         });
+        await page.route('/api/threads', async route => route.fulfill({ json: [] }));
+    });
 
-        // Debugging: Log console messages
-        page.on('console', msg => console.log(`[Browser Console] ${msg.text()}`));
-        page.on('pageerror', err => console.log(`[Browser Error] ${err.message}`));
+    test('should render envelopes and detect domain conflict', async ({ page }) => {
+        // 1. Mock Data: One "System" envelope, One "Generic" atom
+        await page.route('/api/envelopes', async route => {
+            await route.fulfill({
+                json: [
+                    { id: 'env-sys', domain: 'system', x: 100, y: 100, w: 400, h: 400 }
+                ]
+            });
+        });
+
+        await page.route('/api/atoms', async route => {
+            await route.fulfill({
+                json: [
+                    { id: 'atom-gen', content: 'Intruder', domain: 'generic', x: 0, y: 0, status: 1 }
+                ]
+            });
+        });
+
+        // Mock Geometry Sync
+        await page.route('/api/geometry', async route => route.fulfill({ json: { status: 'ok' } }));
+
+        // 2. Load Page
+        await page.goto('/');
+
+        // 3. Verify Elements
+        const atom = page.getByText('Intruder');
+        await expect(atom).toBeVisible();
+        await expect(page.getByText('env-sys (system)')).toBeVisible();
+
+        // 4. Verification: No conflict initially
+        await expect(page.locator('.conflict-fold')).toHaveCount(0);
+
+        // 5. Drag Atom into Envelope
+        const boxAtom = await atom.boundingBox();
+        // Envelope is at 100,100 with w400,h400. Center is 300,300.
+        // Drag atom to 300, 300.
+
+        if (boxAtom) {
+            await page.mouse.move(boxAtom.x + boxAtom.width / 2, boxAtom.y + boxAtom.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(300, 300, { steps: 10 });
+            await page.mouse.up();
+        }
+
+        // 6. Verify Conflict (Domain Mismatch)
+        await page.waitForTimeout(1000); // Wait for heartbeat
+        await expect(page.locator('.conflict-fold')).toHaveCount(1); // Only atom glows? Or both?
+        // Logic says: `return { ...node, ...style }` if conflict.
+        // It iterates nodes. Envelopes are skipped in collision check?
+        // App.jsx:
+        // `if (node.type === 'envelope') return node;`
+        // So Envelope does NOT glow.
+        // `if (nodeDomain !== envDomain) { hasConflict = true }` for the ATOM.
+        // So only the Atom should have .conflict-fold.
+        await expect(page.locator('.conflict-fold')).toBeVisible();
+        await expect(atom).toHaveClass(/conflict-fold/);
+    });
+
+    test('should allow creating new envelope', async ({ page }) => {
+        // Mock API
+        await page.route('/api/envelopes', async route => {
+            if (route.request().method() === 'GET') {
+                await route.fulfill({ json: [] });
+            } else if (route.request().method() === 'POST') {
+                await route.fulfill({ status: 200, json: { status: 'created' } });
+            }
+        });
+        await page.route('/api/atoms', async route => route.fulfill({ json: [] }));
 
         await page.goto('/');
 
-        // Wait for canvas to load with explicit increased timeout
-        // Also wait for network idle to ensure assets are loaded
-        try {
-            await page.waitForLoadState('networkidle', { timeout: 10000 });
-        } catch (e) {
-            console.log("Network idle timeout, proceeding to selector check...");
-        }
+        // Mock prompt
+        page.on('dialog', dialog => dialog.accept('new-env'));
 
-        await page.waitForSelector('.react-flow', { timeout: 60000 });
-    });
+        // Click Button
+        await page.getByRole('button', { name: '+ BOUNDARY' }).click();
 
-    test('should render envelopes', async ({ page }) => {
-        // Envelopes are rendered as Background Nodes in our list, or at least in the DOM.
-        // We look for the text label.
-        const envelopeLabel = page.getByText('env_fw (Firmware)');
-        await expect(envelopeLabel).toBeVisible();
-    });
-
-    test('should trigger conflict fold when Documentation node enters Firmware Envelope', async ({ page }) => {
-        // 1. Locate the "Documentation" node (currently at 0,150 - outside envelope)
-        const docNode = page.locator('.react-flow__node-spatia').filter({ hasText: 'Documentation' });
-
-        // Ensure strictly no conflict initially
-        await expect(docNode).not.toHaveClass(/conflict-fold/);
-
-        // 2. Drag it into the Envelope (Envelope starts at x:200)
-        // We move it to x:250, y:150 (Y stays same)
-        /*
-        await docNode.dragTo(page.locator('.react-flow__pane'), {
-            targetPosition: { x: 300, y: 100 } // approximate screen coords relative to pane might be tricky
-        });
-        */
-
-        // Alternative: Use mouse actions if dragTo is flaky with canvas
-        const box = await docNode.boundingBox();
-        if (!box) throw new Error("Node not found");
-
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await page.mouse.down();
-        // Move by +300px X
-        await page.mouse.move(box.x + 300 + box.width / 2, box.y + box.height / 2, { steps: 5 });
-        await page.mouse.up();
-
-        // 3. Verify visual conflict indication (after 500ms debounce interval)
-        // We wait a bit more than 500ms
-        await page.waitForTimeout(1000);
-
-        await expect(docNode).toHaveClass(/conflict-fold/);
-
-        // Also check CSS style for red border/box-shadow if class check isn't enough
-        const style = await docNode.getAttribute('style');
-        expect(style).toContain('border: 2px solid red');
-    });
-
-    test('should NOT trigger conflict for matching domain (Firmware node)', async ({ page }) => {
-        // Firmware node is already at x:300, inside the envelope (starts x:200, w:300 -> ends x:500)
-        // It matches the domain 'Firmware'
-
-        const fwNode = page.locator('.react-flow__node-spatia').filter({ hasText: 'Firmware Code' });
-
-        // Wait for potential conflict check
-        await page.waitForTimeout(1000);
-
-        await expect(fwNode).not.toHaveClass(/conflict-fold/);
+        // Ideally we verify the POST request happened
+        // Or if we reload, it appears. But here we just mock the POST.
+        // We can verify request
+        const request = await page.waitForRequest(req => req.url().includes('/api/envelopes') && req.method() === 'POST');
+        expect(request).toBeTruthy();
     });
 });

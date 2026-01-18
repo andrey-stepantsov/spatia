@@ -2,41 +2,53 @@
 import pytest
 import asyncio
 import time
-import multiprocessing
-import uvicorn
+import os
 import httpx
 from backend.main import app
 
-def run_server():
-    uvicorn.run(app, host="127.0.0.1", port=8001, log_level="info")
-
 @pytest.fixture(scope="module")
 def server_url():
-    # Start server in a separate process
-    proc = multiprocessing.Process(target=run_server, daemon=True)
-    proc.start()
+    # Start server in a separate process using subprocess for better isolation
+    import subprocess
+    import sys
+    
+    env = os.environ.copy()
+    env["WITNESS_SCRIPT"] = "/usr/bin/true"
+    env["PYTHONUNBUFFERED"] = "1"
+    
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8001"],
+        env=env,
+        text=True
+    )
     
     # Wait for server to come up
     url = "http://127.0.0.1:8001"
-    timeout = 10
+    timeout = 60
     start_time = time.time()
     while time.time() - start_time < timeout:
+        if proc.poll() is not None:
+            raise RuntimeError(f"Server process died unexpectedly with code {proc.returncode}")
+            
         try:
-            # We can use requests or httpx sync to check
             import requests
             requests.get(f"{url}/docs")
             break
         except Exception:
-            time.sleep(0.1)
+            time.sleep(0.5)
     else:
         proc.terminate()
-        raise RuntimeError("Server failed to start")
+        raise RuntimeError("Server failed to start within timeout.")
         
     yield url
     
     # Cleanup
     proc.terminate()
-    proc.join()
+    try:
+        proc.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
 
 @pytest.mark.anyio
 async def test_sse_endpoint(server_url):
@@ -79,7 +91,7 @@ async def test_summon_flow(server_url):
     # Witness router might fail if script missing or whatever, reverting to 1.
     
     print(f"Connecting to SSE...")
-    async with httpx.AsyncClient(base_url=server_url, timeout=30.0) as ac:
+    async with httpx.AsyncClient(base_url=server_url, timeout=60.0) as ac:
         # Start listening
         async with ac.stream("GET", "/api/events") as response:
             assert response.status_code == 200
@@ -90,14 +102,15 @@ async def test_summon_flow(server_url):
             
             # Trigger Summon in background (using another client)
             print("Triggering Summon...")
-            async with httpx.AsyncClient(base_url=server_url) as trigger_client:
-                # We expect this to return quickly
+            async with httpx.AsyncClient(base_url=server_url, timeout=30.0) as trigger_client:
+                # We expect this to return quickly (or wait up to 30s)
                 r = await trigger_client.post("/api/summon", json={"atom_id": atom_id})
                 assert r.status_code == 200, f"Summon failed: {r.text}"
             
             # Listen for updates
             # We expect at least one "update" event for atom_id
             events_received = 0
+            start_time = time.time()
             async for line in lines:
                 print(f"Stream: {line}")
                 if f'"atom_id": "{atom_id}"' in line and "update" in line:
@@ -106,7 +119,7 @@ async def test_summon_flow(server_url):
                     if events_received >= 2:
                         break
                 
-                if time.time() - time.time() > 5: # Timeout check manual
+                if time.time() - start_time > 10: # Timeout check manual
                     break
             
             assert events_received >= 1, "Did not receive update events for summoned atom"

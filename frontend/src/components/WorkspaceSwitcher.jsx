@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 
 export default function WorkspaceSwitcher() {
     const [workspaces, setWorkspaces] = useState([]);
@@ -12,7 +12,7 @@ export default function WorkspaceSwitcher() {
 
     const fetchWorkspaces = async () => {
         try {
-            const res = await axios.get('/api/workspaces');
+            const res = await api.get('/api/workspaces');
             setWorkspaces(res.data);
             // Ideally we should know which one is active.
             // For now, we defaulting UI to 'default' or we could add an API to get current.
@@ -31,7 +31,7 @@ export default function WorkspaceSwitcher() {
 
         setLoading(true);
         try {
-            await axios.post('/api/workspace/switch', { name: target });
+            await api.post('/api/workspace/switch', { name: target });
             setCurrentWorkspace(target);
             // App.jsx handles the 'world_reset' event to reload data
         } catch (err) {

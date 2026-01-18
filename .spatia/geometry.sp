@@ -1,1 +1,1 @@
-../workspaces/default/geometry.sp
+../workspaces/demo-world/geometry.sp

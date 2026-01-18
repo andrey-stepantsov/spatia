@@ -1,13 +1,15 @@
-import asyncio
+import asyncio # Touch to force reload
 import json
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Body, BackgroundTasks
-from fastapi.responses import StreamingResponse, Response
+from fastapi import FastAPI, HTTPException, Body, BackgroundTasks, Request
+from fastapi.responses import StreamingResponse, Response, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import os
 import sqlite3
 import subprocess
 import datetime
+import shutil
 from pydantic import BaseModel
 
 from watchfiles import awatch
@@ -16,6 +18,7 @@ from backend.projector import Projector
 projector = Projector()
 
 DB_PATH = '.spatia/sentinel.db'
+SHATTER_SCRIPT = '.spatia/bin/spatia-shatter.py'
 
 async def watch_sentinel_db():
     print(f"Starting Sentinel DB Watcher on {DB_PATH}...")
@@ -141,8 +144,11 @@ async def get_workspaces():
     workspaces = []
     if os.path.exists("workspaces"):
         for name in os.listdir("workspaces"):
-            if os.path.isdir(os.path.join("workspaces", name)):
-                workspaces.append(name)
+            ws_path = os.path.join("workspaces", name)
+            if os.path.isdir(ws_path):
+                # Only include if it has sentinel.db (i.e. it is a Spatia workspace)
+                if os.path.exists(os.path.join(ws_path, "sentinel.db")):
+                    workspaces.append(name)
     return sorted(workspaces)
 
 class WorkspaceSwitch(BaseModel):
@@ -217,6 +223,129 @@ async def switch_workspace(req: WorkspaceSwitch):
 
 
 
+
+@app.post("/api/workspaces")
+async def create_workspace(req: WorkspaceSwitch):
+    # Reuse WorkspaceSwitch model as it has 'name' field
+    name = req.name
+    if not name or "/" in name or "\\" in name or name == ".." or name == ".":
+         raise HTTPException(status_code=400, detail="Invalid workspace name")
+         
+    cmd = [".spatia/bin/spatia-init-workspace.py", name]
+    output = await run_subprocess_async(cmd)
+    
+    return {"status": "created", "workspace": name, "output": output}
+
+@app.post("/api/workspaces/{name}/snapshot")
+async def snapshot_workspace(name: str):
+    ws_path = os.path.join("workspaces", name)
+    if not os.path.isdir(ws_path):
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    db_path = os.path.join(ws_path, "sentinel.db")
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="Sentinel DB not found in workspace")
+        
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    snap_path = os.path.join(ws_path, f"sentinel.snap.{timestamp}.db")
+    
+    try:
+        shutil.copy2(db_path, snap_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to snapshot: {e}")
+        
+    return {"status": "snapshotted", "workspace": name, "snapshot": f"sentinel.snap.{timestamp}.db"}
+
+class CloneRequest(BaseModel):
+    new_name: Optional[str] = None
+
+@app.post("/api/workspaces/{name}/clone")
+async def clone_workspace(name: str, req: CloneRequest = Body(default=None)):
+    src_path = os.path.join("workspaces", name)
+    if not os.path.isdir(src_path):
+         raise HTTPException(status_code=404, detail="Workspace not found")
+         
+    if req and req.new_name:
+        target_name = req.new_name
+    else:
+        target_name = f"{name}-copy"
+
+    target_path = os.path.join("workspaces", target_name)
+    
+    # Handle collision if auto-generated, or error if explicit?
+    # If explicit name provided, we should probably fail if it exists or handle it?
+    # Let's keep collision handling for auto, but for explicit, let's fail if exists to be safe/clear.
+    if req and req.new_name and os.path.exists(target_path):
+         raise HTTPException(status_code=409, detail="Target workspace already exists")
+    
+    # Auto-generation collision handling
+    counter = 1
+    while os.path.exists(target_path):
+        target_name = f"{name}-copy-{counter}"
+        target_path = os.path.join("workspaces", target_name)
+        counter += 1
+        
+    try:
+        shutil.copytree(src_path, target_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clone: {e}")
+        
+    return {"status": "cloned", "source": name, "target": target_name}
+
+@app.post("/api/workspaces/{name}/eject")
+async def eject_workspace(name: str):
+    # Invoke spatia-eject.py
+    # We pass the workspace NAME, the script should resolve it.
+    # Actually, let's look at the script requirement.
+    # It says "Identify all symlinked atoms... Replace... Remove .spatia/ metadata directory"
+    # Wait, the prompt says "Remove .spatia/ metadata directory from the folder while keeping the source code/data".
+    # And "Identify all symlinked atoms in the target workspace". 
+    # Usually atoms are in the workspace folder. 
+    # If I am modifying `workspaces/<name>`, that is where the atoms are. 
+    # But usually my `workspaces/<name>` IS the workspace root.
+    # Wait, the current setup has `workspaces/` dir. 
+    # Is the user working IN `workspaces/<name>` or is that just where DB is?
+    # `spatia-init-workspace.py` creates `workspaces/<name>/sentinel.db`.
+    # It seems the atoms are expected to be physically located there?
+    # Or is `workspaces/<name>` just holding metadata?
+    # "Replica" vs "Workspace".
+    # If I switch workspace, I symlink `.spatia/sentinel.db` to `workspaces/<name>/sentinel.db`.
+    # The actual files (atoms) are in the root of the repo?
+    # Ah, Spatia usually manages atoms in the current directory (the root where `.spatia` is).
+    # If I create a workspace, do I expect a SEPARATE directory for files?
+    # The prompt says: "Implement a 'Hard Eject' for workspaces... Remove the .spatia/ metadata directory from the folder while keeping the source code/data."
+    # If the workspace is just `workspaces/<name>`, ejecting it implies making it a standalone folder?
+    # Yes. "The workspace will become a standalone folder".
+    # So `workspaces/<name>` IS the folder containing the project? 
+    # Currently `spatia-init-workspace.py` just mkdirs `workspaces/<name>` and puts a DB there.
+    # It doesn't seem to put source code there yet.
+    # Unless the user Intends to put source code there.
+    # Or maybe the "Workspace" concept in Spatia is just the overlay (metadata), and the files are elsewhere?
+    # Re-reading prompt: "Identify all symlinked atoms in the target workspace."
+    # "Replace symlinks with physical file copies."
+    # This implies the workspace HAS symlinks to somewhere else (maybe shared atoms?).
+    # Or maybe main repo has symlinks TO the workspace?
+    # "Switching... update symlinks at .spatia/sentinel.db ... to point to target workspace's files".
+    # This switches the METADATA context.
+    # But where are the content files?
+    # If I am in Root, and I create "Project B", do I work in Root?
+    # If so, how does "Project A" files not interfere?
+    # Maybe "Workspace" here assumes we are just switching the "View" (DB) of the same files?
+    # But then "Eject" removing .spatia metadata makes sense for the ROOT.
+    # But here we are ejecting a specific workspace "target workspace".
+    # "Remove the .spatia/ metadata directory FROM THE FOLDER".
+    # This strongly suggests `workspaces/<name>` is a self-contained folder with source code.
+    # BUT `spatia-init-workspace.py` only inits DB.
+    # Maybe we are assuming the user has moved files there or created them there?
+    # Or maybe the "Eject" just applies to that folder, converting it to a plain folder.
+    # I will assume `workspaces/<name>` is the target directory to be ejected.
+    
+    cmd = [".spatia/bin/spatia-eject.py", name]
+    output = await run_subprocess_async(cmd)
+    
+    await broadcast_event({"type": "world_ejected", "workspace": name})
+    return {"status": "ejected", "workspace": name, "output": output}
+
 SHATTER_SCRIPT = '.spatia/bin/spatia-shatter.py'
 
 class ShatterRequest(BaseModel):
@@ -259,7 +388,11 @@ async def run_subprocess_async(cmd, env=None):
         stdout, stderr = await process.communicate()
         
         if process.returncode != 0:
-             raise HTTPException(status_code=500, detail=f"Script execution failed: {stderr.decode()}")
+             err_msg = stderr.decode()
+             print(f"Subprocess Failed: {cmd}")
+             print(f"Stdout: {stdout.decode()}")
+             print(f"Stderr: {err_msg}")
+             raise HTTPException(status_code=500, detail=f"Script execution failed: {err_msg}")
              
         return stdout.decode().strip()
     except Exception as e:
@@ -274,33 +407,40 @@ def get_db_connection():
 
 @app.post("/api/shatter")
 async def shatter_atom(request: ShatterRequest):
-    cmd = [SHATTER_SCRIPT, '--path', request.path]
-    if request.content is not None:
-        cmd.extend(['--content', request.content])
-    
-    output = await run_subprocess_async(cmd)
-    
-    # Parse output for ATOM_ID: <id>
-    atom_id = None
-    for line in output.split('\n'):
-        if line.startswith('ATOM_ID:'):
-            atom_id = line.split(':', 1)[1].strip()
-            break
-            
-    if not atom_id:
-        # Fallback if script didn't output ID cleanly (shouldn't happen with our update)
-        # Or if it was a re-shatter of existing file, maybe we just use request.path
-        # But we want to be sure.
-        raise HTTPException(status_code=500, detail=f"Could not determine atom_id from script output: {output}")
+    print(f"Received Shatter Request: {request}")
+    try:
+        cmd = [SHATTER_SCRIPT, '--path', request.path]
+        if request.content is not None:
+            cmd.extend(['--content', request.content])
+        
+        output = await run_subprocess_async(cmd)
+        
+        # Parse output for ATOM_ID: <id>
+        atom_id = None
+        for line in output.split('\n'):
+            if line.startswith('ATOM_ID:'):
+                atom_id = line.split(':', 1)[1].strip()
+                break
+                
+        if not atom_id:
+            # Fallback if script didn't output ID cleanly (shouldn't happen with our update)
+            # Or if it was a re-shatter of existing file, maybe we just use request.path
+            # But we want to be sure.
+            raise HTTPException(status_code=500, detail=f"Could not determine atom_id from script output: {output}")
 
-    # Ensure geometry exists
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("INSERT OR IGNORE INTO geometry (atom_id, x, y) VALUES (?, 0, 0)", (atom_id,))
-        conn.commit()
+        # Ensure geometry exists
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO geometry (atom_id, x, y) VALUES (?, 0, 0)", (atom_id,))
+            conn.commit()
 
-    await broadcast_event({"type": "update", "atom_id": atom_id})
-    return {"atom_id": atom_id}
+        await broadcast_event({"type": "update", "atom_id": atom_id})
+        return {"atom_id": atom_id}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"SHATTER EXCEPTION: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/atoms")
 async def get_atoms():
@@ -443,7 +583,7 @@ async def run_witness_process(atom_id: str):
     Exit Code * -> Status 1 (Claim)
     """
     print(f"Background: Witnessing {atom_id}...")
-    WITNESS_SCRIPT = '.spatia/bin/spatia-witness-router'
+    WITNESS_SCRIPT = os.environ.get("WITNESS_SCRIPT", '.spatia/bin/spatia-witness-router')
     
     # Notify start (optional, already done in endpoint, but good for consistency)
     await broadcast_event({"type": "update", "atom_id": atom_id})
@@ -583,7 +723,8 @@ async def sse_endpoint():
         except asyncio.CancelledError:
             pass
         finally:
-            clients.remove(queue)
+            if queue in clients:
+                clients.remove(queue)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/api/atoms/{atom_id}/logs")
@@ -599,14 +740,173 @@ async def get_atom_logs(atom_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read logs: {e}")
 
+
+class EnvelopeCreate(BaseModel):
+    id: str
+    domain: Optional[str] = "generic"
+    x: int
+    y: int
+    w: int
+    h: int
+
+class EnvelopeUpdate(BaseModel):
+    domain: Optional[str] = None
+    x: Optional[int] = None
+    y: Optional[int] = None
+    w: Optional[int] = None
+    h: Optional[int] = None
+
 @app.get("/api/envelopes")
 async def get_envelopes():
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        # Gracefully handle table missing if not created yet (though lifespan ensures it)
         try:
             cursor.execute("SELECT * FROM envelopes")
             return [dict(row) for row in cursor.fetchall()]
         except sqlite3.OperationalError:
             return []
+
+@app.post("/api/envelopes")
+async def create_envelope(env: EnvelopeCreate):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO envelopes (id, domain, x, y, w, h)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (env.id, env.domain, env.x, env.y, env.w, env.h))
+            conn.commit()
+        except sqlite3.IntegrityError:
+             raise HTTPException(status_code=409, detail="Envelope ID already exists")
+    
+    await broadcast_event({"type": "envelope_update", "id": env.id})
+    return {"status": "created", "envelope": env.model_dump()}
+
+@app.put("/api/envelopes/{env_id}")
+async def update_envelope(env_id: str, updates: EnvelopeUpdate):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Build dynamic query
+        fields = []
+        values = []
+        if updates.domain is not None:
+            fields.append("domain = ?")
+            values.append(updates.domain)
+        if updates.x is not None:
+            fields.append("x = ?")
+            values.append(updates.x)
+        if updates.y is not None:
+            fields.append("y = ?")
+            values.append(updates.y)
+        if updates.w is not None:
+            fields.append("w = ?")
+            values.append(updates.w)
+        if updates.h is not None:
+            fields.append("h = ?")
+            values.append(updates.h)
+            
+        if not fields:
+            return {"status": "no_change"}
+            
+        values.append(env_id)
+        
+        cursor.execute(f"UPDATE envelopes SET {', '.join(fields)} WHERE id = ?", values)
+        conn.commit()
+    
+    await broadcast_event({"type": "envelope_update", "id": env_id})
+    return {"status": "updated", "id": env_id}
+
+# --- Connection Manager & Diagnostics ---
+
+@app.get("/api/health")
+async def health_check():
+    """
+    Heartbeat endpoint for frontend to verify backend availability.
+    """
+    # Check DB connection
+    db_status = "unknown"
+    workspace_name = "unknown"
+    
+    try:
+        # Check if we can connect
+        if os.path.exists(DB_PATH):
+           with sqlite3.connect(DB_PATH) as conn:
+               cursor = conn.cursor()
+               cursor.execute("SELECT 1")
+               db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+        
+    # Determine current workspace
+    # If DB_PATH is a symlink, resolve it
+    if os.path.islink(DB_PATH):
+        real_path = os.readlink(DB_PATH)
+        # expected: workspaces/<name>/sentinel.db
+        # We can extract name from path
+        parts = real_path.split(os.sep)
+        if "workspaces" in parts:
+            try:
+                idx = parts.index("workspaces")
+                if len(parts) > idx + 1:
+                    workspace_name = parts[idx + 1]
+            except:
+                pass
+    else:
+        # Default/Root workspace
+        workspace_name = "default"
+
+    return {
+        "status": "ok",
+        "service": "spatia-backend",
+        "db_status": db_status,
+        "workspace": workspace_name,
+        "timestamp": datetime.datetime.now().isoformat()
+    }
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"Global Exception: {exc}")
+    import traceback
+    traceback.print_exc()
+    
+    return JSONResponse(
+        content={
+            "status": "error",
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": str(exc),
+                "type": type(exc).__name__
+            }
+        },
+        status_code=500
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        content={
+            "status": "error",
+            "error": {
+                "code": "HTTP_ERROR",
+                "message": exc.detail,
+                "status_code": exc.status_code
+            }
+        },
+        status_code=exc.status_code
+    )
+
+
+
+@app.delete("/api/envelopes/{env_id}")
+async def delete_envelope(env_id: str):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM envelopes WHERE id = ?", (env_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Envelope not found")
+        conn.commit()
+        
+    await broadcast_event({"type": "envelope_update", "id": env_id})
+    return {"status": "deleted", "id": env_id}
 
