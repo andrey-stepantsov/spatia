@@ -87,9 +87,26 @@ devbox run web
 *   `docs/`: Core documentation and theoretical foundations.
 *   `tests/`: Pytest suite for backend and protocol verification.
 
-## Development
+## Development & Testing
 
-Run the test suite:
+### 1. Backend Verification
+Runs the integration test suite for core protocol logic.
 ```bash
 pytest
+```
+
+### 2. Frontend Verification
+Runs unit tests for React components and hooks (Vitest).
+```bash
+cd frontend
+npm test
+# Coverage report: npm run coverage
+```
+
+### 3. Full System Regression (E2E)
+**Recommended for release verification.**
+Runs the isolated regression suite using Playwright. This script explicitly manages the backend/frontend lifecycle for each test file to ensure total environment isolation.
+```bash
+# Must be run from root
+python3 scripts/isolated_test_runner.py
 ```

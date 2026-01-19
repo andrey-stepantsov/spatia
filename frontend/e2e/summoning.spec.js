@@ -1,9 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { waitForConnection, waitForCanvas } from './helpers/waitForConnection';
 
 test('Summoning Flow: Hollow Construct -> Portals -> Summon', async ({ page }) => {
     // 1. App Load
+    test.setTimeout(60000); // Increase timeout
     await page.goto('/');
-    await expect(page.locator('.react-flow__renderer')).toBeVisible();
+    await waitForConnection(page);
+    await waitForCanvas(page);
 
     // 2. Clear existing (Optional, or assume clean DB/unique ID)
     // We'll use a unique ID for the test run
@@ -45,16 +48,18 @@ test('Summoning Flow: Hollow Construct -> Portals -> Summon', async ({ page }) =
     await expect(node.getByText('/etc/hosts')).toBeVisible();
 
     // 6. Summon
-    // a. Handle Confirm Dialog
-    page.on('dialog', dialog => dialog.accept());
-
-    // b. Click Summon
+    // a. Click Summon
     await node.getByTestId('summon-btn').click();
+
+    // b. Confirm Modal
+    await expect(page.locator('text=Summon Intelligence')).toBeVisible();
+    await page.locator('.fixed').filter({ hasText: 'Summon Intelligence' }).getByRole('button', { name: 'Summon' }).click();
 
     // 7. Verify Transition
     // Should lose Blue status and gain Yellow (Claim) or Purple (Witness)
     // Wait for it to NOT be blue.
-    await expect(node.locator('div').first()).not.toHaveClass(/border-blue-500/);
+    // Wait for it to NOT be blue (allow time for backend/AI to process)
+    await expect(node.locator('div').first()).not.toHaveClass(/border-blue-500/, { timeout: 45000 });
     // Should eventually have Witnessing (Purple) or Endorsed (Green) if fast
     // Let's assert it is one of the non-hollow states.
     // Or check for "Witnessing" if we can catch it.

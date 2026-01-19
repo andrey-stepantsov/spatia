@@ -19,7 +19,7 @@ def setup_teardown():
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE atoms (id TEXT PRIMARY KEY, type TEXT, content TEXT, hash TEXT, domain TEXT DEFAULT 'generic', status INTEGER DEFAULT 0, parent_project TEXT, last_witnessed TEXT)")
     cursor.execute("CREATE TABLE portals (id INTEGER PRIMARY KEY AUTOINCREMENT, atom_id TEXT, path TEXT, description TEXT, created_at TEXT)")
-    cursor.execute("CREATE TABLE threads (source_id TEXT, target_id TEXT, PRIMARY KEY (source_id, target_id))")
+    cursor.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, source TEXT, target TEXT)")
     # Also geometry needed for other lookups? Not for summon.
     cursor.execute("CREATE TABLE geometry (atom_id TEXT, pane_id TEXT, x INTEGER, y INTEGER)")
     cursor.execute("CREATE UNIQUE INDEX idx_geometry_atom_id ON geometry(atom_id)")

@@ -50,3 +50,7 @@ test-results/
 frontend/test-results/
 frontend/playwright-report/
 .coverage
+
+# --- Local Logs & Workspaces ---
+*.log
+workspaces/

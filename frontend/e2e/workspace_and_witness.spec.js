@@ -3,18 +3,16 @@ import { test, expect } from '@playwright/test';
 import axios from 'axios';
 
 test('Workspace Switching and Witness Protocol', async ({ page, request }) => {
+    // Multiple dependencies and timing issues - needs comprehensive backend investigation
     // 1. Navigate to App
-    await page.goto('http://localhost:5173');
+    await page.goto('/');
     await expect(page).toHaveTitle(/Spatia/);
 
     // 2. Verify Workspace Selector
-    // Wait for selector to load
-    const wsSelector = page.locator('select');
+    const wsSelector = page.getByTestId('workspace-selector');
     await expect(wsSelector).toBeVisible();
-
-    // Note: Switching modifies backend state which might affect other tests potentially, 
-    // but we are in e2e. Let's switch to 'default' just to be sure.
-    await wsSelector.selectOption('default');
+    // Default workspace should be active initially
+    await expect(wsSelector).toContainText('default');
 
     // 3. Witness Lisp Intent (Blue -> Green)
 
@@ -61,11 +59,13 @@ test('Workspace Switching and Witness Protocol', async ({ page, request }) => {
     const summonNode = page.locator(`.react-flow__node-spatia:has-text("${summonPath}")`);
     await expect(summonNode).toBeVisible();
 
-    // Handle confirm dialog
-    page.on('dialog', dialog => dialog.accept());
-
     // Click Summon
     await summonNode.locator('button:has-text("Summon")').click();
+
+    // Confirm Modal
+    await expect(page.locator('text=Summon Intelligence')).toBeVisible();
+    // Use precise selector for modal button to avoid strict mode violations with node buttons
+    await page.getByRole('dialog').getByRole('button', { name: 'Summon' }).click();
 
     // It stays Blue/Green (depends if we witness it). 
     // If we just Summon, it stays Blue (Status 0) in UI until AI updates it to 1. 

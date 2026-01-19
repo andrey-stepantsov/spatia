@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import api from '../utils/api';
 
 const HEALTH_CHECK_INTERVAL = 2000;
 const MAX_FAILURES = 3;
@@ -13,7 +14,9 @@ const MAX_FAILURES = 3;
  * 3. Global Connection State (connected, disconnected, reconnecting)
  * 4. Workspace Sync (refetching on reconnect)
  */
-export function useSpatiaConnection(onSyncRequired) {
+import { SYNC_EVENTS } from '../utils/constants';
+
+export function useSpatiaConnection(onSyncRequired, onEvent) {
     const [status, setStatus] = useState('connecting'); // connecting, connected, disconnected
     const [workspace, setWorkspace] = useState(null);
     const [error, setError] = useState(null);
@@ -33,8 +36,10 @@ export function useSpatiaConnection(onSyncRequired) {
                 if (status === 'disconnected') {
                     console.log("Backend recovered!");
                     setStatus('recovered'); // Transient state to trigger re-sync
+                    api.setConnectionStatus('recovered');
                 } else if (status === 'connecting') {
                     setStatus('connected');
+                    api.setConnectionStatus('connected');
                 }
             }
         } catch (err) {
@@ -42,6 +47,7 @@ export function useSpatiaConnection(onSyncRequired) {
             failuresRef.current += 1;
             if (failuresRef.current >= MAX_FAILURES) {
                 setStatus('disconnected');
+                api.setConnectionStatus('disconnected');
                 if (sseRef.current) {
                     console.log("Closing SSE due to health failure");
                     sseRef.current.close();
@@ -72,13 +78,19 @@ export function useSpatiaConnection(onSyncRequired) {
                     console.log("SSE Open");
                     // If we were recovering, trigger sync
                     if (onSyncRequired) onSyncRequired();
-                    if (status === 'recovered') setStatus('connected');
+                    if (status === 'recovered') {
+                        setStatus('connected');
+                        api.setConnectionStatus('connected');
+                    }
                 };
 
                 es.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        if (['db_update', 'update', 'thread_new', 'world_reset', 'envelope_update', 'world_ejected'].includes(data.type)) {
+                        // Forward all events for observability
+                        if (onEvent) onEvent(data);
+
+                        if (SYNC_EVENTS.includes(data.type)) {
                             if (onSyncRequired) onSyncRequired();
                         }
                     } catch (e) {
@@ -105,7 +117,7 @@ export function useSpatiaConnection(onSyncRequired) {
                 sseRef.current = null;
             }
         };
-    }, [status, onSyncRequired]);
+    }, [status, onSyncRequired, onEvent]);
 
     return { status, workspace, error };
 }

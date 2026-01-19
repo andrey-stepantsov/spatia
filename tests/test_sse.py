@@ -13,6 +13,7 @@ def server_url():
     import sys
     
     env = os.environ.copy()
+    env["PYTHONPATH"] = os.getcwd() # Ensure backend is importable
     env["WITNESS_SCRIPT"] = "/usr/bin/true"
     env["PYTHONUNBUFFERED"] = "1"
     

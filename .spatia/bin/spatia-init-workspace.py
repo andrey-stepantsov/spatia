@@ -39,9 +39,9 @@ def init_workspace(name, workspaces_dir="workspaces"):
     """)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS threads (
-            source_id TEXT,
-            target_id TEXT,
-            PRIMARY KEY (source_id, target_id)
+            id TEXT PRIMARY KEY,
+            source TEXT,
+            target TEXT
         )
     """)
     cursor.execute("""
@@ -76,9 +76,13 @@ def init_workspace(name, workspaces_dir="workspaces"):
     
     print(f"Workspace '{name}' sentinel.db initialized.")
 
-if __name__ == "__main__":
+
+def main():
     parser = argparse.ArgumentParser(description="Initialize a new Spatia workspace")
     parser.add_argument("name", help="Name of the workspace")
     args = parser.parse_args()
     
     init_workspace(args.name)
+
+if __name__ == "__main__":
+    main()

@@ -34,7 +34,7 @@ def project():
     # Fetch Threads - check if table exists first (graceful degradation)
     threads = []
     try:
-        cursor.execute("SELECT source_id, target_id FROM threads")
+        cursor.execute("SELECT source, target FROM threads")
         threads = cursor.fetchall()
     except sqlite3.OperationalError:
         pass
@@ -62,7 +62,7 @@ def project():
         # Write Threads
         for row in threads:
             # (thread :FROM :TO)
-            f.write(f"(thread :{row['source_id']} :{row['target_id']})\n")
+            f.write(f"(thread :{row['source']} :{row['target']})\n")
             
     print(f"{GREEN}Successfully projected {len(anchors)} anchors, {len(envelopes)} envelopes, and {len(threads)} threads.{RESET}")
 
@@ -133,10 +133,11 @@ def shatter():
             m_thread = thread_pattern.match(line)
             if m_thread:
                 source, target = m_thread.groups()
+                thread_id = f"thread_{source}_{target}"
                 try:
                     cursor.execute("""
-                        INSERT OR IGNORE INTO threads (source_id, target_id) VALUES (?, ?)
-                    """, (source, target))
+                        INSERT OR IGNORE INTO threads (id, source, target) VALUES (?, ?, ?)
+                    """, (thread_id, source, target))
                     threads_count += 1
                 except sqlite3.OperationalError:
                      print(f"{RED}Warning: 'threads' table missing.{RESET}")

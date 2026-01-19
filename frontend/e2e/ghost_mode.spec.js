@@ -67,10 +67,13 @@ test.describe('Ghost Mode & Time Travel', () => {
         // 3. Click "Revive" button on fossil
         const fossilNode = page.locator('.react-flow__node-spatia').filter({ hasText: 'Fossil Content' });
 
-        // Handle confirm dialog
-        page.on('dialog', dialog => dialog.accept());
-
+        // Click Revive
         await fossilNode.getByText('REVIVE').click();
+
+        // Confirm Modal - use specific heading to avoid strict mode violation
+        await expect(page.getByRole('heading', { name: 'Revive Fossil' })).toBeVisible();
+        // Click the modal's Revive button (second one, index 1)
+        await page.getByRole('button', { name: 'Revive' }).nth(1).click();
 
         // 4. Verify API call
         expect(reviveCalled).toBe(true);

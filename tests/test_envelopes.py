@@ -60,3 +60,46 @@ def test_delete_envelope(client):
     
     resp = client.get("/api/envelopes")
     assert len(resp.json()) == 0
+
+def test_create_duplicate(client):
+    # Create first
+    client.post("/api/envelopes", json={"id": "env-dup", "x": 0, "y": 0, "w": 10, "h": 10})
+    
+    # Create duplicate
+    resp = client.post("/api/envelopes", json={"id": "env-dup", "x": 10, "y": 10, "w": 10, "h": 10})
+    assert resp.status_code == 409
+    data = resp.json()
+    # Schema matches http_exception_handler
+    assert data["status"] == "error"
+    assert data["error"]["message"] == "Envelope ID already exists"
+
+def test_update_all_fields_and_empty(client):
+    client.post("/api/envelopes", json={"id": "env-update", "x": 0, "y": 0, "w": 10, "h": 10})
+    
+    # Partial updates
+    resp = client.put("/api/envelopes/env-update", json={"y": 50})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "updated"
+    
+    resp = client.put("/api/envelopes/env-update", json={"w": 100})
+    assert resp.status_code == 200
+    
+    resp = client.put("/api/envelopes/env-update", json={"h": 200})
+    assert resp.status_code == 200
+    
+    # Empty update
+    resp = client.put("/api/envelopes/env-update", json={})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "no_change"
+    
+    # Verify final state
+    resp = client.get("/api/envelopes")
+    env = next(e for e in resp.json() if e["id"] == "env-update")
+    assert env["y"] == 50
+    assert env["w"] == 100
+    assert env["h"] == 200
+    assert env["x"] == 0 # Original
+
+def test_delete_not_found(client):
+    resp = client.delete("/api/envelopes/env-non-existent")
+    assert resp.status_code == 404

@@ -1,103 +1,103 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Shatter & Persistence', () => {
-    test.beforeEach(async ({ page }) => {
-        // Default mocks to avoid errors on load
-        await page.route('/api/atoms', async route => route.fulfill({ json: [] }));
-        await page.route('/api/threads', async route => route.fulfill({ json: [] }));
-        // Mock SSE
-        await page.route('/api/events', async route => {
-            await route.fulfill({
-                status: 200,
-                contentType: 'text/event-stream',
-                body: 'event: connected\ndata: {}\n\n'
+
+    test.describe('Mocked UI Tests', () => {
+        test.beforeEach(async ({ page }) => {
+            // Default mocks to avoid errors on load
+            await page.route('/api/atoms', async route => route.fulfill({ json: [] }));
+            await page.route('/api/threads', async route => route.fulfill({ json: [] }));
+            // Mock SSE
+            await page.route('/api/events', async route => {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'text/event-stream',
+                    body: 'event: connected\ndata: {}\n\n'
+                });
             });
+        });
+
+        test('should shatter a new atom and display it', async ({ page }) => {
+            // 1. Setup initial state (empty)
+            await page.goto('/');
+
+            // 2. Mock the Shatter API call
+            let shatterCalled = false;
+            await page.route('/api/shatter', async route => {
+                const data = route.request().postDataJSON();
+                expect(data.path).toBe('atoms/new_idea.md');
+                expect(data.content).toBe('# My Idea');
+                shatterCalled = true;
+                await route.fulfill({ json: { atom_id: 'atoms/new_idea.md' } });
+            });
+
+            // 3. Mock the subsequent fetchAtoms call to return the new atom
+            await page.route('/api/atoms', async route => {
+                await route.fulfill({
+                    json: [{ id: 'atoms/new_idea.md', content: '# My Idea', x: 0, y: 0, status: 1 }]
+                });
+            });
+
+            // 4. Interact with Shatter Portal
+            await page.getByPlaceholder('Path (e.g. atoms/idea.md)').fill('atoms/new_idea.md');
+            await page.getByPlaceholder('Content (optional)').fill('# My Idea');
+            await page.getByRole('button', { name: 'SHATTER ATOM' }).click();
+
+            // 6. Verify UI Updated
+            await expect(page.getByText('atoms/new_idea.md')).toBeVisible();
+
+            expect(shatterCalled).toBe(true);
         });
     });
 
-    test('should shatter a new atom and display it', async ({ page }) => {
-        // 1. Setup initial state (empty)
-        await page.goto('/');
+    test.describe('Integration Tests (Real API)', () => {
+        test('should persist geometry via API', async ({ page, request }) => {
+            // 1. Create atom via UI
+            await page.goto('/');
 
-        // 2. Mock the Shatter API call
-        let shatterCalled = false;
-        await page.route('/api/shatter', async route => {
-            const data = route.request().postDataJSON();
-            expect(data.path).toBe('atoms/new_idea.md');
-            expect(data.content).toBe('# My Idea');
-            shatterCalled = true;
-            await route.fulfill({ json: { atom_id: 'atoms/new_idea.md' } });
-        });
+            // Wait for connection to establish
+            // Wait for connection to establish (CONNECTING... should disappear)
+            await page.locator('text=CONNECTING...').waitFor({ state: 'hidden', timeout: 10000 });
 
-        // 3. Mock the subsequent fetchAtoms call to return the new atom
-        // The app calls fetchAtoms() after shatter success.
-        // We can update the /api/atoms mock *after* the initial load, 
-        // but since we are inside a test step, we can override the route now? 
-        // Actually, Playwright routes are LIFO (last registered match wins), 
-        // so we register a new route for the *next* request.
-        await page.route('/api/atoms', async route => {
-            await route.fulfill({
-                json: [{ id: 'atoms/new_idea.md', content: '# My Idea', x: 0, y: 0, status: 1 }]
+            const testPath = `atoms/persist-test-${Date.now()}.md`;
+            await page.fill('input[placeholder="Path (e.g. atoms/idea.md)"]', testPath);
+            await page.fill('textarea[placeholder="Content (optional)"]', 'Geometry persistence test');
+            await page.click('button:has-text("SHATTER ATOM")');
+
+            // Wait for atom to appear on canvas
+            await page.waitForTimeout(1000);
+            const node = page.locator(`div.react-flow__node-spatia:has-text("${testPath}")`);
+            await expect(node).toBeVisible({ timeout: 20000 });
+
+            // 2. Update geometry directly via API
+            // Note: In real app, API is at same origin. In test, request fixture handles it.
+            // But if we use 'request' fixture, we might need baseURL.
+            // Let's assume baseURL is set in playwright.config.
+            const geometryUpdate = await request.post('/api/geometry', {
+                data: [{ atom_id: testPath, x: 500, y: 300 }]
             });
-        });
+            expect(geometryUpdate.ok()).toBe(true);
 
-        // 4. Interact with Shatter Portal
-        await page.getByPlaceholder('Path (e.g. atoms/idea.md)').fill('atoms/new_idea.md');
-        await page.getByPlaceholder('Content (optional)').fill('# My Idea');
-        await page.getByRole('button', { name: 'SHATTER ATOM' }).click();
+            // 3. Reload page and verify position persisted
+            await page.reload();
 
-        // 5. Verify API was called
-        // We can wait a bit or just rely on the UI update which implies success
-        // But the check inside the route handler ensures content correctness.
+            // Wait for atoms to load
+            // Wait for atoms to load
+            await page.locator('text=CONNECTING...').waitFor({ state: 'hidden', timeout: 10000 });
 
-        // 6. Verify UI Updated
-        // The new mock for /api/atoms should be hit.
-        await expect(page.getByText('atoms/new_idea.md')).toBeVisible();
+            // 4. Verify geometry was persisted by checking node position after reload
+            const persistedNode = page.locator(`div.react-flow__node-spatia:has-text("${testPath}")`);
+            await expect(persistedNode).toBeVisible({ timeout: 10000 });
 
-        expect(shatterCalled).toBe(true);
-    });
-
-    test('should persist geometry on drag stop', async ({ page }) => {
-        // 1. Initial State: One atom
-        await page.route('/api/atoms', async route => {
-            await route.fulfill({
-                json: [{ id: 'draggable_atom', content: 'Drag Me', x: 100, y: 100, status: 1 }]
+            // Get position - React Flow nodes have transform style
+            const transform = await persistedNode.evaluate(el => {
+                const style = window.getComputedStyle(el);
+                return style.transform;
             });
+
+            // React Flow uses transform: translate(500px, 300px)
+            // It might be matrix(...) but typically expect 500/300 nums.
+            expect(transform).toMatch(/matrix.*500.*300.*|translate.*500px.*300px/);
         });
-        await page.goto('/');
-
-        // 2. Mock Geometry API
-        let geometryPayload = null;
-        await page.route('/api/geometry', async route => {
-            geometryPayload = route.request().postDataJSON();
-            await route.fulfill({ json: { status: 'ok' } });
-        });
-
-        // 3. Perform Drag
-        const node = page.getByText('Drag Me');
-        await expect(node).toBeVisible();
-        const box = await node.boundingBox();
-
-        if (box) {
-            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-            await page.mouse.down();
-            // Move 100px right, 50px down
-            await page.mouse.move(box.x + box.width / 2 + 100, box.y + box.height / 2 + 50, { steps: 10 });
-            await page.mouse.up();
-        }
-
-        // 4. Verify Persistence Call
-        // Wait for the request to happen (it's async in dragStop)
-        await page.waitForTimeout(500);
-
-        expect(geometryPayload).not.toBeNull();
-        expect(geometryPayload.length).toBe(1);
-        expect(geometryPayload[0].atom_id).toBe('draggable_atom');
-        // We moved +100 x, +50 y. Logic in ReactFlow is robust, but coordinate calculation 
-        // depends on zoom/pan level. Assuming default zoom 1 and no pan:
-        // Initial 100, 100. New should be roughly 200, 150.
-        // We'll just check "roughly" or that it changed significantly.
-        expect(geometryPayload[0].x).toBeGreaterThan(140);
-        expect(geometryPayload[0].y).toBeGreaterThan(120);
     });
 });

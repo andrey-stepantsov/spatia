@@ -2,9 +2,14 @@
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../utils/api';
 
-interface WorkspaceSelectorProps { }
+import CloneModal from './CloneModal';
 
-export default function WorkspaceSelector() {
+interface WorkspaceSelectorProps {
+    onError: (msg: string) => void;
+    onSuccess: (msg: string) => void;
+}
+
+export default function WorkspaceSelector({ onError, onSuccess }: WorkspaceSelectorProps) {
     const [workspaces, setWorkspaces] = useState<string[]>([]);
     const [currentWorkspace, setCurrentWorkspace] = useState<string>('default');
     const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -17,6 +22,10 @@ export default function WorkspaceSelector() {
     const [isEjectOpen, setIsEjectOpen] = useState(false);
     const [ejectTarget, setEjectTarget] = useState<string | null>(null);
     const [ejectConfirmName, setEjectConfirmName] = useState('');
+
+    // Clone Modal State
+    const [isCloneOpen, setIsCloneOpen] = useState(false);
+    const [cloneTarget, setCloneTarget] = useState<string | null>(null);
 
     // Context Menu State
     const [activeContext, setActiveContext] = useState<string | null>(null); // name of ws
@@ -53,7 +62,7 @@ export default function WorkspaceSelector() {
             await api.post('/api/workspace/switch', { name });
             setCurrentWorkspace(name);
         } catch (err: any) {
-            alert("Failed to switch: " + err.message);
+            onError("Failed to switch: " + (err.response?.data?.detail || err.message));
         }
     };
 
@@ -68,8 +77,9 @@ export default function WorkspaceSelector() {
             setNewWsName('');
             setIsCreatorOpen(false);
             fetchWorkspaces();
+            onSuccess(`Created workspace ${newWsName}`);
         } catch (err: any) {
-            alert("Create failed: " + err.message);
+            onError("Create failed: " + (err.response?.data?.detail || err.message));
         }
     };
 
@@ -77,23 +87,28 @@ export default function WorkspaceSelector() {
         setActiveContext(null);
         try {
             await api.post(`/api/workspaces/${name}/snapshot`);
-            alert(`Snapshot created for ${name}`);
+            onSuccess(`Snapshot created for ${name}`);
         } catch (err: any) {
-            alert("Snapshot failed: " + err.message);
+            onError("Snapshot failed: " + (err.response?.data?.detail || err.message));
         }
     };
 
-    const handleClone = async (name: string) => {
+    const openCloneModal = (name: string) => {
         setActiveContext(null);
-        const newName = prompt("Enter name for clone:", `${name}-copy`);
-        if (!newName) return;
+        setCloneTarget(name);
+        setIsCloneOpen(true);
+    };
 
+    const handleClone = async (newName: string) => {
+        if (!cloneTarget) return;
         try {
-            await api.post(`/api/workspaces/${name}/clone`, { new_name: newName });
+            await api.post(`/api/workspaces/${cloneTarget}/clone`, { new_name: newName });
             fetchWorkspaces();
-            alert(`Cloned ${name} to ${newName}`);
+            setIsCloneOpen(false);
+            setCloneTarget(null);
+            onSuccess(`Cloned ${cloneTarget} to ${newName}`);
         } catch (err: any) {
-            alert("Clone failed: " + err.message);
+            onError("Clone failed: " + (err.response?.data?.detail || err.message));
         }
     };
 
@@ -128,7 +143,7 @@ export default function WorkspaceSelector() {
     };
 
     return (
-        <div className="absolute top-4 left-96 z-50 flex items-center gap-3">
+        <div data-testid="workspace-selector" className="absolute top-4 left-96 z-50 flex items-center gap-3">
             <div className="relative" ref={menuRef}>
                 {/* Main Trigger */}
                 <button
@@ -277,6 +292,14 @@ export default function WorkspaceSelector() {
                     </div>
                 </div>
             )}
+
+            <CloneModal
+                isOpen={isCloneOpen}
+                onClose={() => setIsCloneOpen(false)}
+                onClone={handleClone}
+                initialName={cloneTarget}
+            />
+
             {/* Global Context Menu (Fixed) */}
             {activeContext && contextMenuPos && (
                 <div
@@ -294,7 +317,7 @@ export default function WorkspaceSelector() {
                         Snapshot
                     </button>
                     <button
-                        onClick={() => handleClone(activeContext)}
+                        onClick={() => openCloneModal(activeContext)}
                         className="text-left px-3 py-1.5 text-xs text-green-300 hover:bg-gray-700"
                     >
                         Clone

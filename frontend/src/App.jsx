@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ReactFlow, Background, Controls, useNodesState, useEdgesState, addEdge } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import api from './utils/api'; // Use new API utility
+import { ReactFlow, Background, Controls, useNodesState, useEdgesState } from '@xyflow/react';
+import api from './utils/api';
+import { useSpatiaConnection } from './hooks/useSpatiaConnection';
 import SpatiaNode from './nodes/SpatiaNode';
-import EnvelopeNode from './nodes/EnvelopeNode';
 import SpatiaLogo from './components/SpatiaLogo';
 import WorkspaceSelector from './components/WorkspaceSelector';
 import ConnectionStatus from './components/ConnectionStatus';
-import { useSpatiaConnection } from './hooks/useSpatiaConnection';
+import CreateEnvelopeModal from './components/CreateEnvelopeModal';
+import ConfirmationModal from './components/ConfirmationModal';
+
+import SpatiaCanvas from './components/SpatiaCanvas';
+import EnvelopeNode from './nodes/EnvelopeNode';
 
 const nodeTypes = {
   spatia: SpatiaNode,
@@ -18,13 +21,46 @@ export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [envelopes, setEnvelopes] = useState([]);
+
+  // UI States
   const [shatterPath, setShatterPath] = useState('');
   const [shatterContent, setShatterContent] = useState('');
   const [isHollow, setIsHollow] = useState(false);
   const [isGhostMode, setIsGhostMode] = useState(false);
 
-  // New Error State
-  const [errorToast, setErrorToast] = useState(null);
+  // Modal States
+  const [showEnvelopeModal, setShowEnvelopeModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [envelopeToDelete, setEnvelopeToDelete] = useState(null);
+  const [showSummonModal, setShowSummonModal] = useState(false);
+  const [summonTarget, setSummonTarget] = useState(null);
+  const [showReviveModal, setShowReviveModal] = useState(false);
+  const [reviveTarget, setReviveTarget] = useState(null);
+
+  // Toast State
+  const [toast, setToast] = useState(null);
+
+  // Handle Error
+  const handleError = useCallback((msg) => {
+    setToast({ type: 'error', message: msg, code: 'ERROR' });
+    setTimeout(() => setToast(null), 5000);
+  }, []);
+
+  const handleSuccess = useCallback((msg) => {
+    setToast({ type: 'success', message: msg, code: 'SUCCESS' });
+    setTimeout(() => setToast(null), 5000);
+  }, []);
+
+  // Event Handler
+  const handleEvent = useCallback((event) => {
+    if (event.type === 'echo_response') {
+      const now = Date.now();
+      const rtt = now - event.client_timestamp;
+      const msg = `RTT: ${rtt}ms | Svr: ${new Date(event.server_timestamp).toLocaleTimeString()}`;
+      setToast({ type: 'info', message: msg, code: 'ECHO' });
+      setTimeout(() => setToast(null), 5000);
+    }
+  }, []);
 
   const fetchAtoms = useCallback(async () => {
     try {
@@ -40,21 +76,43 @@ export default function App() {
 
       setEnvelopes(envelopesData);
 
+      // Handle Envelope Deletion
+      const handleDeleteEnvelope = (id) => {
+        setEnvelopeToDelete(id);
+        setShowDeleteModal(true);
+      };
+
+      // Handle Summon
+      const handleSummon = (id, model) => {
+        setSummonTarget({ id, model });
+        setShowSummonModal(true);
+      };
+
+      // Handle Revive
+      const handleRevive = (id) => {
+        setReviveTarget(id);
+        setShowReviveModal(true);
+      };
+
+
+
       const envelopeNodes = envelopesData.map(env => ({
         id: env.id,
-        type: 'envelope', // Custom Type
+        type: 'envelope', // Use custom node
         position: { x: env.x, y: env.y },
         style: {
           width: env.w,
           height: env.h,
-          zIndex: -1,
+          zIndex: 0,
         },
         data: {
           id: env.id,
-          domain: env.domain
+          domain: env.domain,
+          onDelete: handleDeleteEnvelope
         },
-        draggable: true, // Allow dragging
+        draggable: false,
         selectable: true,
+        connectable: false
       }));
 
       const newNodes = atoms
@@ -69,7 +127,10 @@ export default function App() {
             id: atom.id,
             content: atom.content,
             status: atom.status,
-            domain: atom.domain || 'generic'
+            domain: atom.domain || 'generic',
+            onSummon: handleSummon,
+            onRevive: handleRevive,
+            onError: handleError
           },
         }));
       setNodes([...envelopeNodes, ...newNodes]);
@@ -85,21 +146,33 @@ export default function App() {
 
     } catch (err) {
       console.error("Failed to fetch data:", err);
-      // We don't necessarily alert here as it happens during disconnects
     }
-  }, [setNodes, setEdges, isGhostMode]);
+  }, [setNodes, setEdges, isGhostMode, handleError]);
 
-  // Use the new Hook
-  const { status, workspace } = useSpatiaConnection(fetchAtoms);
+  // Use Connection Hook
+  const { status, workspace } = useSpatiaConnection(fetchAtoms, handleEvent);
 
-  // Initial fetch when connected
+  // Echo Keyboard Shortcut
   useEffect(() => {
-    if (status === 'connected') {
-      fetchAtoms();
-    }
-  }, [status, fetchAtoms]);
+    const handleKeyDown = (e) => {
+      // Cmd+E or Ctrl+E
+      if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+        e.preventDefault();
+        const payload = `Echo test ${Date.now()}`;
+        api.post('/api/echo', { timestamp: Date.now(), payload })
+          .catch(err => handleError("Echo failed: " + err.message));
+        setToast({ type: 'info', message: "Sending Echo...", code: 'PING' });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleError]);
 
-  // ... (isHollow useEffect logic unchanged) ...
+  // Initial Fetch
+  useEffect(() => {
+    fetchAtoms();
+  }, [fetchAtoms]);
+
   useEffect(() => {
     if (isHollow) {
       setShatterContent(`:intent "Describe intent here"\n(defun new_construct ()\n  ...)`);
@@ -109,85 +182,56 @@ export default function App() {
   }, [isHollow]);
 
   const onNodeDragStop = useCallback((event, node) => {
-    // Check if Envelope or Atom
-    if (node.type === 'envelope') {
-      api.put(`/api/envelopes/${node.id}`, {
-        x: parseInt(node.position.x),
-        y: parseInt(node.position.y),
-        w: parseInt(node.measured?.width || node.style.width),
-        h: parseInt(node.measured?.height || node.style.height)
-      }).catch(err => console.error("Env update failed", err));
-    } else {
-      api.post('/api/geometry', [{
-        atom_id: node.id,
-        x: parseInt(node.position.x),
-        y: parseInt(node.position.y)
-      }]).catch(err => console.error("Sync failed", err));
-    }
+    api.post('/api/geometry', [{
+      atom_id: node.id,
+      x: parseInt(node.position.x),
+      y: parseInt(node.position.y)
+    }]).catch(err => console.error("Sync failed", err));
   }, []);
 
-  const onConnect = useCallback((params) => {
-    setEdges((eds) => addEdge(params, eds));
-    api.post('/api/threads', { source: params.source, target: params.target })
-      .catch(err => {
-        console.error("Thread create failed", err);
-        setErrorToast(err);
-        setTimeout(() => setErrorToast(null), 5000);
-      });
-  }, [setEdges]);
-
-  const onNodeResizeStop = useCallback((event, params) => {
-    // Note: older signature support or different library version might need adjustment
-  }, []);
-
-  // Simplified collision detection (only envelope checks)
+  // Conflict Fold - Collision Detection
   useEffect(() => {
     const interval = setInterval(() => {
       setNodes((nds) => {
         return nds.map((node) => {
-          if (node.type === 'envelope') return node;
+          if (envelopes.some(e => e.id === node.id)) return node;
 
           let hasConflict = false;
           const r1 = {
-            x: node.position.x, y: node.position.y,
-            w: node.width || 250, h: node.height || 150
+            x: node.position.x,
+            y: node.position.y,
+            w: node.width || 250,
+            h: node.height || 150
           };
 
-          // 1. Node-Node
+          // Node-Node
           for (const other of nds) {
             if (node.id === other.id) continue;
-            if (other.type === 'envelope') continue;
+            if (envelopes.some(e => e.id === other.id)) continue;
 
             const r2 = {
-              x: other.position.x, y: other.position.y,
-              w: other.width || 250, h: other.height || 150
+              x: other.position.x,
+              y: other.position.y,
+              w: other.width || 250,
+              h: other.height || 150
             };
+
             if (r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y) {
-              hasConflict = true; break;
+              hasConflict = true;
+              break;
             }
           }
 
-          // 2. Envelope Policy
+          // Envelope Policy
           if (!hasConflict) {
             const cx = r1.x + r1.w / 2;
             const cy = r1.y + r1.h / 2;
-
-            for (const env of nds) {
-              if (env.type !== 'envelope') continue;
-
-              // Use env.style.width/height or measured
-              const ew = parseInt(env.style.width) || env.measured?.width || 100;
-              const eh = parseInt(env.style.height) || env.measured?.height || 100;
-
-              if (cx >= env.position.x && cx <= env.position.x + ew &&
-                cy >= env.position.y && cy <= env.position.y + eh) {
-
+            for (const env of envelopes) {
+              if (String(node.id) === String(env.id)) continue;
+              if (cx >= env.x && cx <= env.x + env.w && cy >= env.y && cy <= env.y + env.h) {
                 const nodeDomain = node.data.domain || 'generic';
-                const envDomain = env.data.domain || 'generic';
-
-                if (nodeDomain !== envDomain) {
-                  hasConflict = true;
-                }
+                const envDomain = env.domain;
+                if (nodeDomain !== envDomain) hasConflict = true;
               }
             }
           }
@@ -204,33 +248,82 @@ export default function App() {
       });
     }, 500);
     return () => clearInterval(interval);
-  }, [setNodes]);
+  }, [setNodes, envelopes]);
 
   const handleShatter = async (e) => {
     e.preventDefault();
+    console.log('[APP-DEBUG] handleShatter called', { path: shatterPath, content: shatterContent });
     if (!shatterPath) return;
     try {
+      console.log('[APP-DEBUG] Calling api.post(/api/shatter)');
       await api.post('/api/shatter', { path: shatterPath, content: shatterContent || undefined });
+      console.log('[APP-DEBUG] Shatter success');
       setShatterPath(''); setShatterContent('');
+      handleSuccess("Atom shattered successfully");
     } catch (err) {
-      console.error("Shatter Error:", err);
-      setErrorToast(err);
-      setTimeout(() => setErrorToast(null), 5000);
+      console.error('[APP-DEBUG] Shatter error', err);
+      handleError("Shatter failed: " + err.message);
     }
   };
 
-  const handleNewEnvelope = async () => {
-    const id = prompt("Envelope ID (unique):", `env-${Date.now()}`);
-    if (!id) return;
+  const createEnvelope = async (data) => {
+    console.log('[APP-DEBUG] createEnvelope called', data);
     try {
-      await api.post('/api/envelopes', {
-        id,
-        domain: 'generic',
-        x: 100, y: 100, w: 300, h: 300
-      });
+      await api.post('/api/envelopes', { ...data, x: 100, y: 100, w: 300, h: 300 });
+      console.log('[APP-DEBUG] Envelope create success');
+      fetchAtoms();
+      handleSuccess("Envelope created");
     } catch (err) {
-      setErrorToast(err);
-      setTimeout(() => setErrorToast(null), 5000);
+      console.error('[APP-DEBUG] Envelope create error', err);
+      handleError("Failed to create envelope: " + err.message);
+    }
+  };
+
+  const confirmDeleteEnvelope = async () => {
+    if (envelopeToDelete) {
+      try {
+        await api.delete(`/api/envelopes/${envelopeToDelete}`); // Fixed string template syntax
+        setEnvelopeToDelete(null);
+        setShowDeleteModal(false);
+        fetchAtoms();
+        handleSuccess("Envelope deleted");
+      } catch (err) {
+        handleError("Failed to delete: " + err.message);
+      }
+    }
+  };
+
+  const confirmSummon = async () => {
+    if (summonTarget) {
+      try {
+        await api.post('/api/summon', { atom_id: summonTarget.id, model: summonTarget.model });
+        setSummonTarget(null);
+        setShowSummonModal(false);
+        handleSuccess("Summoning initiated...");
+      } catch (err) {
+        handleError("Summon failed: " + err.message);
+      }
+    }
+  };
+
+  const confirmRevive = async () => {
+    if (reviveTarget) {
+      try {
+        await api.post('/api/revive', { fossil_id: reviveTarget });
+        setReviveTarget(null);
+        setShowReviveModal(false);
+        handleSuccess("Revive initiated...");
+      } catch (err) {
+        handleError("Revive failed: " + err.message);
+      }
+    }
+  };
+
+  const getToastStyle = (type) => {
+    switch (type) {
+      case 'success': return 'bg-green-900/90 border-green-500';
+      case 'info': return 'bg-blue-900/90 border-blue-500';
+      default: return 'bg-red-900/90 border-red-500';
     }
   };
 
@@ -238,40 +331,36 @@ export default function App() {
     <div className="w-screen h-screen bg-[#050505] text-white overflow-hidden flex flex-col font-sans relative">
       <ConnectionStatus status={status} workspace={workspace} />
 
-      {/* Error Toast */}
-      {errorToast && (
-        <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-[100] bg-red-900/90 border border-red-500 text-white px-6 py-3 rounded-lg shadow-2xl backdrop-blur animate-in fade-in slide-in-from-top-4">
-          <div className="font-bold text-sm mb-1">
-            {errorToast.code || "ERROR"}
-          </div>
-          <div className="text-xs opacity-90">
-            {errorToast.message}
-          </div>
+      {toast && (
+        <div className={`absolute top-16 left-1/2 transform -translate-x-1/2 z-[100] border text-white px-6 py-3 rounded-lg shadow-2xl backdrop-blur animate-in fade-in slide-in-from-top-4 ${getToastStyle(toast.type)}`}>
+          <div className="font-bold text-sm mb-1">{toast.code || (toast.type === 'error' ? "ERROR" : "INFO")}</div>
+          <div className="text-xs opacity-90">{toast.message}</div>
         </div>
       )}
 
       <SpatiaLogo className="absolute top-6 right-6 w-12 h-12 z-50 opacity-50 hover:opacity-100 transition-opacity cursor-pointer" theme="dark" />
-      <WorkspaceSelector />
+      <WorkspaceSelector onError={handleError} onSuccess={handleSuccess} />
 
       {/* Tools Bar */}
       <div className="absolute top-6 right-24 z-50 flex gap-2">
         <button
-          onClick={handleNewEnvelope}
+          onClick={() => setShowEnvelopeModal(true)}
           className="bg-green-900/50 hover:bg-green-700/50 text-green-300 px-3 py-1 rounded text-xs font-mono border border-green-700/50 backdrop-blur"
         >
           + BOUNDARY
         </button>
       </div>
 
+      {/* Background Envelopes Layer */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden"></div>
 
+      {/* Shatter Portal */}
       <div className="absolute top-4 left-4 z-50 bg-gray-900/80 backdrop-blur border border-gray-700 shadow-2xl rounded-xl p-4 w-80 transition-opacity hover:opacity-100 opacity-80">
         <h2 className="text-xs font-bold mb-3 text-blue-400 uppercase tracking-widest flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
           Shatter Portal
         </h2>
         <form onSubmit={handleShatter} className="space-y-3">
-          {/* Same form content ... */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 mb-2">
               <label className="text-[10px] uppercase font-bold text-gray-400">Hollow Construct</label>
@@ -319,27 +408,49 @@ export default function App() {
         </form>
       </div>
 
-      <ReactFlow
+      <SpatiaCanvas
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onNodeDragStop={onNodeDragStop}
-        onConnect={onConnect}
-        onNodeResizeStop={(event, type, node) => {
-          if (node?.type === 'envelope') {
-            // ...
-          }
-        }}
-        nodeTypes={nodeTypes}
-        fitView
-        className="bg-[#050505]"
-        colorMode="dark"
-      >
-        <Background color="#222" gap={24} size={1} />
-        <Controls className="bg-gray-900 border-gray-700 fill-gray-400" />
-      </ReactFlow>
+      />
+
+      {/* Modals */}
+      <CreateEnvelopeModal
+        isOpen={showEnvelopeModal}
+        onClose={() => setShowEnvelopeModal(false)}
+        onCreate={createEnvelope}
+      />
+
+      <ConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={confirmDeleteEnvelope}
+        title="Delete Boundary"
+        message={`Are you sure you want to delete boundary "${envelopeToDelete}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+      />
+
+      <ConfirmationModal
+        isOpen={showSummonModal}
+        onClose={() => setShowSummonModal(false)}
+        onConfirm={confirmSummon}
+        title="Summon Intelligence"
+        message={`This will invoke a specialized AI Agent (${summonTarget?.model}) to implement the construct. Proceed?`}
+        confirmLabel="Summon"
+        variant="primary"
+      />
+
+      <ConfirmationModal
+        isOpen={showReviveModal}
+        onClose={() => setShowReviveModal(false)}
+        onConfirm={confirmRevive}
+        title="Revive Fossil"
+        message={`Are you sure you want to revive fossil "${reviveTarget}"? The current active version will be archived.`}
+        confirmLabel="Revive"
+        variant="primary"
+      />
     </div>
   );
 }
-

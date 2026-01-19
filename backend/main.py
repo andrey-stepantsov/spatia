@@ -70,9 +70,9 @@ async def lifespan(app: FastAPI):
         # Ensure threads table exists
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS threads (
-                source_id TEXT,
-                target_id TEXT,
-                PRIMARY KEY (source_id, target_id)
+                id TEXT PRIMARY KEY,
+                source TEXT,
+                target TEXT
             )
         """)
         
@@ -126,17 +126,41 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         print("Sentinel Watcher Stopped")
 
-clients: List[asyncio.Queue] = []
+    try:
+        await watcher_task
+    except asyncio.CancelledError:
+        print("Sentinel Watcher Stopped")
+
+# Refactored Connection Manager
+from backend.connection_manager import ConnectionManager
+manager = ConnectionManager()
 
 async def broadcast_event(data: dict):
-    payload = f"data: {json.dumps(data)}\n\n"
-    # Iterate over a copy to safely handle modifications if any (though asyncio is single threaded)
-    for queue in clients:
-        await queue.put(payload)
+    await manager.broadcast(data)
 
 app = FastAPI(lifespan=lifespan)
 
-# Global Watcher Control
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_headers=["*"],
+)
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import traceback
+
+
+
+# Concurrency Helpers
+from functools import partial
+async def run_in_thread(func, *args, **kwargs):
+    return await asyncio.get_running_loop().run_in_executor(None, partial(func, *args, **kwargs))
+
+# Global Locks
+workspace_lock = asyncio.Lock()
 watcher_task: Optional[asyncio.Task] = None
 
 @app.get("/api/workspaces")
@@ -156,70 +180,72 @@ class WorkspaceSwitch(BaseModel):
 
 @app.post("/api/workspace/switch")
 async def switch_workspace(req: WorkspaceSwitch):
-    global watcher_task
-    target_ws = req.name
-    ws_path = os.path.join("workspaces", target_ws)
-    
-    if not os.path.exists(ws_path):
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    # Protect workspace switching with a lock to prevent race conditions
+    async with workspace_lock:
+        global watcher_task
+        target_ws = req.name
+        ws_path = os.path.join("workspaces", target_ws)
         
-    print(f"Switching to workspace: {target_ws}")
-
-    # 1. Stop Watcher
-    if watcher_task and not watcher_task.done():
-        print("Stopping DB Watcher...")
-        watcher_task.cancel()
-        try:
-            await watcher_task
-        except asyncio.CancelledError:
-            pass
+        if not os.path.exists(ws_path):
+            raise HTTPException(status_code=404, detail="Workspace not found")
             
-    # 2. Update Symlinks
-    # Remove old symlinks
-    try:
-        if os.path.islink(DB_PATH) or os.path.exists(DB_PATH):
-            os.remove(DB_PATH)
-        geo_link = ".spatia/geometry.sp"
-        if os.path.islink(geo_link) or os.path.exists(geo_link):
-            os.remove(geo_link)
-    except Exception as e:
-        print(f"Error removing links: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to remove symlinks: {e}")
-        
-    # Create new symlinks
-    try:
-        # Calculate relative paths to target workspace files
-        # Target: workspaces/<name>/sentinel.db
-        # Source: DB_PATH (e.g. .spatia/sentinel.db or test_sentinel.db)
-        
-        # 1. Sentinel DB
-        target_db_abs = os.path.abspath(os.path.join("workspaces", target_ws, "sentinel.db"))
-        link_db_dir = os.path.dirname(os.path.abspath(DB_PATH))
-        rel_target_db = os.path.relpath(target_db_abs, link_db_dir)
-        
-        os.symlink(rel_target_db, DB_PATH)
+        print(f"Switching to workspace: {target_ws}")
 
-        # 2. Geometry
-        geo_link = ".spatia/geometry.sp"
-        target_geo_abs = os.path.abspath(os.path.join("workspaces", target_ws, "geometry.sp"))
-        link_geo_dir = os.path.dirname(os.path.abspath(geo_link))
-        rel_target_geo = os.path.relpath(target_geo_abs, link_geo_dir)
-        
-        os.symlink(rel_target_geo, geo_link)
-        
-    except Exception as e:
-        print(f"Error creating links: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create symlinks: {e}")
-        
-    print(f"Symlinks updated to {target_ws}")
+        # 1. Stop Watcher
+        if watcher_task and not watcher_task.done():
+            print("Stopping DB Watcher...")
+            watcher_task.cancel()
+            try:
+                await watcher_task
+            except asyncio.CancelledError:
+                pass
+                
+        # 2. Update Symlinks
+        # Remove old symlinks
+        try:
+            if os.path.islink(DB_PATH) or os.path.exists(DB_PATH):
+                os.remove(DB_PATH)
+            geo_link = ".spatia/geometry.sp"
+            if os.path.islink(geo_link) or os.path.exists(geo_link):
+                os.remove(geo_link)
+        except Exception as e:
+            print(f"Error removing links: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to remove symlinks: {e}")
+            
+        # Create new symlinks
+        try:
+            # Calculate relative paths to target workspace files
+            # Target: workspaces/<name>/sentinel.db
+            # Source: DB_PATH (e.g. .spatia/sentinel.db or test_sentinel.db)
+            
+            # 1. Sentinel DB
+            target_db_abs = os.path.abspath(os.path.join("workspaces", target_ws, "sentinel.db"))
+            link_db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+            rel_target_db = os.path.relpath(target_db_abs, link_db_dir)
+            
+            os.symlink(rel_target_db, DB_PATH)
 
-    # 3. Restart Watcher
-    watcher_task = asyncio.create_task(watch_sentinel_db())
-    
-    # 4. Broadcast Reset
-    await broadcast_event({"type": "world_reset"})
-    
-    return {"status": "switched", "workspace": target_ws}
+            # 2. Geometry
+            geo_link = ".spatia/geometry.sp"
+            target_geo_abs = os.path.abspath(os.path.join("workspaces", target_ws, "geometry.sp"))
+            link_geo_dir = os.path.dirname(os.path.abspath(geo_link))
+            rel_target_geo = os.path.relpath(target_geo_abs, link_geo_dir)
+            
+            os.symlink(rel_target_geo, geo_link)
+            
+        except Exception as e:
+            print(f"Error creating links: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to create symlinks: {e}")
+            
+        print(f"Symlinks updated to {target_ws}")
+
+        # 3. Restart Watcher
+        watcher_task = asyncio.create_task(watch_sentinel_db())
+        
+        # 4. Broadcast Reset
+        await broadcast_event({"type": "world_reset"})
+        
+        return {"status": "switched", "workspace": target_ws}
 
 
 
@@ -250,7 +276,7 @@ async def snapshot_workspace(name: str):
     snap_path = os.path.join(ws_path, f"sentinel.snap.{timestamp}.db")
     
     try:
-        shutil.copy2(db_path, snap_path)
+        await run_in_thread(shutil.copy2, db_path, snap_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to snapshot: {e}")
         
@@ -286,7 +312,7 @@ async def clone_workspace(name: str, req: CloneRequest = Body(default=None)):
         counter += 1
         
     try:
-        shutil.copytree(src_path, target_path)
+        await run_in_thread(shutil.copytree, src_path, target_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to clone: {e}")
         
@@ -296,49 +322,6 @@ async def clone_workspace(name: str, req: CloneRequest = Body(default=None)):
 async def eject_workspace(name: str):
     # Invoke spatia-eject.py
     # We pass the workspace NAME, the script should resolve it.
-    # Actually, let's look at the script requirement.
-    # It says "Identify all symlinked atoms... Replace... Remove .spatia/ metadata directory"
-    # Wait, the prompt says "Remove .spatia/ metadata directory from the folder while keeping the source code/data".
-    # And "Identify all symlinked atoms in the target workspace". 
-    # Usually atoms are in the workspace folder. 
-    # If I am modifying `workspaces/<name>`, that is where the atoms are. 
-    # But usually my `workspaces/<name>` IS the workspace root.
-    # Wait, the current setup has `workspaces/` dir. 
-    # Is the user working IN `workspaces/<name>` or is that just where DB is?
-    # `spatia-init-workspace.py` creates `workspaces/<name>/sentinel.db`.
-    # It seems the atoms are expected to be physically located there?
-    # Or is `workspaces/<name>` just holding metadata?
-    # "Replica" vs "Workspace".
-    # If I switch workspace, I symlink `.spatia/sentinel.db` to `workspaces/<name>/sentinel.db`.
-    # The actual files (atoms) are in the root of the repo?
-    # Ah, Spatia usually manages atoms in the current directory (the root where `.spatia` is).
-    # If I create a workspace, do I expect a SEPARATE directory for files?
-    # The prompt says: "Implement a 'Hard Eject' for workspaces... Remove the .spatia/ metadata directory from the folder while keeping the source code/data."
-    # If the workspace is just `workspaces/<name>`, ejecting it implies making it a standalone folder?
-    # Yes. "The workspace will become a standalone folder".
-    # So `workspaces/<name>` IS the folder containing the project? 
-    # Currently `spatia-init-workspace.py` just mkdirs `workspaces/<name>` and puts a DB there.
-    # It doesn't seem to put source code there yet.
-    # Unless the user Intends to put source code there.
-    # Or maybe the "Workspace" concept in Spatia is just the overlay (metadata), and the files are elsewhere?
-    # Re-reading prompt: "Identify all symlinked atoms in the target workspace."
-    # "Replace symlinks with physical file copies."
-    # This implies the workspace HAS symlinks to somewhere else (maybe shared atoms?).
-    # Or maybe main repo has symlinks TO the workspace?
-    # "Switching... update symlinks at .spatia/sentinel.db ... to point to target workspace's files".
-    # This switches the METADATA context.
-    # But where are the content files?
-    # If I am in Root, and I create "Project B", do I work in Root?
-    # If so, how does "Project A" files not interfere?
-    # Maybe "Workspace" here assumes we are just switching the "View" (DB) of the same files?
-    # But then "Eject" removing .spatia metadata makes sense for the ROOT.
-    # But here we are ejecting a specific workspace "target workspace".
-    # "Remove the .spatia/ metadata directory FROM THE FOLDER".
-    # This strongly suggests `workspaces/<name>` is a self-contained folder with source code.
-    # BUT `spatia-init-workspace.py` only inits DB.
-    # Maybe we are assuming the user has moved files there or created them there?
-    # Or maybe the "Eject" just applies to that folder, converting it to a plain folder.
-    # I will assume `workspaces/<name>` is the target directory to be ejected.
     
     cmd = [".spatia/bin/spatia-eject.py", name]
     output = await run_subprocess_async(cmd)
@@ -392,7 +375,9 @@ async def run_subprocess_async(cmd, env=None):
              print(f"Subprocess Failed: {cmd}")
              print(f"Stdout: {stdout.decode()}")
              print(f"Stderr: {err_msg}")
-             raise HTTPException(status_code=500, detail=f"Script execution failed: {err_msg}")
+             # Include stdout in detail as scripts might print errors there
+             detail_msg = f"Script execution failed. Stderr: {err_msg}. Stdout: {stdout.decode()}"
+             raise HTTPException(status_code=500, detail=detail_msg)
              
         return stdout.decode().strip()
     except Exception as e:
@@ -480,15 +465,25 @@ async def update_geometry(updates: List[GeometryUpdate]):
 async def get_threads():
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT source_id as source, target_id as target FROM threads")
+        cursor.execute("SELECT source, target FROM threads")
         return [dict(row) for row in cursor.fetchall()]
 
 @app.post("/api/threads")
 async def create_thread(thread: Thread):
+    import uuid
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("INSERT OR IGNORE INTO threads (source_id, target_id) VALUES (?, ?)", (thread.source, thread.target))
-        conn.commit()
+        # Check if exists first to avoid duplicate logic with different ID
+        # (Though PK is ID, we might want unique source-target pair?)
+        # Original code used IGNORE on composite PK.
+        # Let's try to query first.
+        cursor.execute("SELECT id FROM threads WHERE source = ? AND target = ?", (thread.source, thread.target))
+        existing = cursor.fetchone()
+        
+        if not existing:
+             new_id = str(uuid.uuid4())
+             cursor.execute("INSERT INTO threads (id, source, target) VALUES (?, ?, ?)", (new_id, thread.source, thread.target))
+             conn.commit()
     
     await broadcast_event({"type": "thread_new", "source": thread.source, "target": thread.target})
     return {"status": "ok"}
@@ -516,62 +511,103 @@ async def create_portal(portal: PortalCreate):
 @app.post("/api/summon")
 async def summon_atom(request: SummonRequest, background_tasks: BackgroundTasks):
     atom_id = request.atom_id
+    
+    # 1. OPTIMISTIC LOCKING: Reserve access (Status 0 -> 2)
+    # Status 2 (Witnessing) also serves as "Processing/Busy" here
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        # 1. Verify Status == 0 (Shadow/Hollow)
-        cursor.execute("SELECT content, status FROM atoms WHERE id = ?", (atom_id,))
+        # Check current status first for better error message
+        cursor.execute("SELECT status FROM atoms WHERE id = ?", (atom_id,))
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Atom not found")
         
-        content, status = row['content'], row['status']
-        if status != 0:
-            raise HTTPException(status_code=400, detail=f"Atom is not in Hollow state (Status 0). Current: {status}")
-            
-        # 2. Fetch Portals
-        cursor.execute("SELECT * FROM portals WHERE atom_id = ?", (atom_id,))
-        portals = [dict(r) for r in cursor.fetchall()]
-        
-        # 3. Fetch Neighbors
-        cursor.execute("SELECT target_id FROM threads WHERE source_id = ?", (atom_id,))
-        neighbors = [r['target_id'] for r in cursor.fetchall()]
+        if row['status'] != 0:
+            raise HTTPException(status_code=400, detail=f"Atom is not in Hollow state (Status 0). Current: {row['status']}")
 
-        # 4. Summon via Projector
-        new_content = projector.summon(atom_id, content, portals, neighbors, request.model)
+        # Attempt atomic reservation
+        cursor.execute("UPDATE atoms SET status = 2 WHERE id = ? AND status = 0", (atom_id,))
+        conn.commit()
         
-        # Strip Markdown Code Blocks if present
+        if cursor.rowcount == 0:
+            # Race condition hit - someone else just took it or it changed status
+            raise HTTPException(status_code=409, detail="Atom was modified by another process (Optimistic lock failed)")
+
+    # Notify we are starting (processing)
+    await broadcast_event({"type": "update", "atom_id": atom_id})
+    
+    try:
+        # 2. Fetch Context Data
+        with get_db_connection() as conn:
+             cursor = conn.cursor()
+             
+             # Fetch content again? Yes, it should be safe now we have lock.
+             cursor.execute("SELECT content FROM atoms WHERE id = ?", (atom_id,))
+             content = cursor.fetchone()['content']
+             
+             cursor.execute("SELECT * FROM portals WHERE atom_id = ?", (atom_id,))
+             portals = [dict(r) for r in cursor.fetchall()]
+             
+             cursor.execute("SELECT target FROM threads WHERE source = ?", (atom_id,))
+             neighbors = [r['target'] for r in cursor.fetchall()]
+
+        # 3. Generate Content (Offloaded to avoid blocking main loop)
+        new_content = await run_in_thread(
+            projector.summon, 
+            atom_id, content, portals, neighbors, request.model
+        )
+        
+        # Strip Markdown Code Blocks
         if new_content.strip().startswith("```"):
              lines = new_content.strip().split("\n")
-             # Remove first line if it starts with ```
-             if lines[0].startswith("```"):
-                 lines = lines[1:]
-             # Remove last line if it starts with ```
-             if lines and lines[-1].startswith("```"):
-                 lines = lines[:-1]
+             if lines[0].startswith("```"): lines = lines[1:]
+             if lines and lines[-1].startswith("```"): lines = lines[:-1]
              new_content = "\n".join(lines)
         
-        # Update Content and Status to 1 (Claim)
-        cursor.execute("UPDATE atoms SET content = ?, status = 1 WHERE id = ?", (new_content, atom_id))
-        conn.commit()
+        # 4. Update DB (Status 2 -> 1 Claim)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE atoms SET content = ?, status = 1 WHERE id = ?", (new_content, atom_id))
+            conn.commit()
 
-        # Broadcast Status 1 (Yellow/Claim)
+        # Broadcast Claim
         await broadcast_event({"type": "update", "atom_id": atom_id})
 
-        # Update file on disk if it matches atom_id (if atom_id is path)
+        # 5. Write to Disk (Offloaded)
         if os.path.exists(atom_id):
-             with open(atom_id, "w") as f:
-                 f.write(new_content)
+             def write_file():
+                 with open(atom_id, "w") as f:
+                     f.write(new_content)
+             await run_in_thread(write_file)
 
-    # 5. Trigger Witness (Status 2 -> 3/1) via Background
-    with get_db_connection() as conn:
-        conn.execute("UPDATE atoms SET status = 2 WHERE id = ?", (atom_id,))
-        conn.commit()
-
-    background_tasks.add_task(run_witness_process, atom_id)
-    
-    await broadcast_event({"type": "update", "atom_id": atom_id})
-    return {"status": "summoned", "atom_id": atom_id, "model": request.model}
+        # 6. Trigger Witness (Status 1 -> 2 -> 3)
+        # Note: We just set it to 1. Now we trigger witness which sets it to 2 again.
+        with get_db_connection() as conn:
+             conn.execute("UPDATE atoms SET status = 2 WHERE id = ?", (atom_id,))
+             conn.commit()
+             
+        background_tasks.add_task(run_witness_process, atom_id)
+        
+        await broadcast_event({"type": "update", "atom_id": atom_id})
+        return {"status": "summoned", "atom_id": atom_id, "model": request.model}
+        
+    except Exception as e:
+        print(f"Summon Error: {e}")
+        # Failure Recovery: Revert Status to 0 or 1?
+        # If we failed during generation, it acts like it never happened?
+        # Revert to 1 (Claim) with old content? OR 0 (Hollow)?
+        # If we revert to 0, user can try again easily.
+        with get_db_connection() as conn:
+             try:
+                 # Check what status is now? We held it at 2 (since we set it).
+                 conn.execute("UPDATE atoms SET status = 0 WHERE id = ?", (atom_id,))
+                 conn.commit()
+             except:
+                 pass
+        
+        await broadcast_event({"type": "update", "atom_id": atom_id})
+        raise HTTPException(status_code=500, detail=f"Summon failed: {e}")
 
 class WitnessRequest(BaseModel):
     atom_id: str
@@ -711,20 +747,18 @@ async def revive_atom(request: ReviveRequest):
 
 @app.get("/api/events")
 async def sse_endpoint():
-    queue = asyncio.Queue()
-    clients.append(queue)
+    queue = await manager.connect()
     async def event_generator():
-        yield "event: connected\ndata: {}\n\n"
-        await asyncio.sleep(0.01) # Yield control to allow flush
         try:
+            yield "event: connected\ndata: {}\n\n"
+            await asyncio.sleep(0.01) # Yield control to allow flush
             while True:
                 data = await queue.get()
                 yield data
         except asyncio.CancelledError:
             pass
         finally:
-            if queue in clients:
-                clients.remove(queue)
+            await manager.disconnect(queue)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/api/atoms/{atom_id}/logs")
@@ -755,6 +789,30 @@ class EnvelopeUpdate(BaseModel):
     y: Optional[int] = None
     w: Optional[int] = None
     h: Optional[int] = None
+
+
+
+@app.post("/api/echo")
+async def echo_request(request: Request):
+    """
+    Echo endpoint for network RTT measurement.
+    Broadcasts 'echo_response' to all clients.
+    """
+    import time
+    body = await request.json()
+    client_ts = body.get("timestamp")
+    payload = body.get("payload", "")
+    
+    server_ts = time.time() * 1000 # ms
+    
+    await broadcast_event({
+        "type": "echo_response",
+        "client_timestamp": client_ts,
+        "server_timestamp": server_ts,
+        "payload": payload
+    })
+    
+    return {"status": "ok", "server_timestamp": server_ts}
 
 @app.get("/api/envelopes")
 async def get_envelopes():
@@ -839,22 +897,18 @@ async def health_check():
         db_status = f"error: {str(e)}"
         
     # Determine current workspace
-    # If DB_PATH is a symlink, resolve it
-    if os.path.islink(DB_PATH):
-        real_path = os.readlink(DB_PATH)
-        # expected: workspaces/<name>/sentinel.db
-        # We can extract name from path
-        parts = real_path.split(os.sep)
-        if "workspaces" in parts:
-            try:
+    try:
+        if os.path.islink(DB_PATH):
+            real_path = os.readlink(DB_PATH)
+            parts = real_path.split(os.sep)
+            if "workspaces" in parts:
                 idx = parts.index("workspaces")
                 if len(parts) > idx + 1:
                     workspace_name = parts[idx + 1]
-            except:
-                pass
-    else:
-        # Default/Root workspace
-        workspace_name = "default"
+        else:
+            workspace_name = "default"
+    except Exception:
+        workspace_name = "unknown"
 
     return {
         "status": "ok",
@@ -898,15 +952,17 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 
 
-@app.delete("/api/envelopes/{env_id}")
-async def delete_envelope(env_id: str):
+@app.delete("/api/envelopes/{envelope_id}")
+async def delete_envelope(envelope_id: str):
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM envelopes WHERE id = ?", (env_id,))
+        cursor.execute("DELETE FROM envelopes WHERE id = ?", (envelope_id,))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Envelope not found")
         conn.commit()
-        
-    await broadcast_event({"type": "envelope_update", "id": env_id})
-    return {"status": "deleted", "id": env_id}
+    
+    await broadcast_event({"type": "envelope_delete", "id": envelope_id})
+
+    return {"status": "deleted", "id": envelope_id}
+
 

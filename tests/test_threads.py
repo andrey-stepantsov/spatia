@@ -26,7 +26,7 @@ def setup_database():
         cursor.execute("CREATE TABLE atoms (id TEXT PRIMARY KEY, type TEXT, content TEXT, hash TEXT, domain TEXT, status INTEGER)")
         cursor.execute("CREATE TABLE geometry (atom_id TEXT, pane_id TEXT, x INTEGER, y INTEGER)")
         cursor.execute("CREATE UNIQUE INDEX idx_geometry_atom_id ON geometry(atom_id)")
-        cursor.execute("CREATE TABLE threads (source_id TEXT, target_id TEXT, PRIMARY KEY (source_id, target_id))")
+        cursor.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, source TEXT, target TEXT)")
         conn.commit()
         conn.close()
         
@@ -65,7 +65,7 @@ def test_geometry_projection_integration():
     conn = sqlite3.connect(TEST_DB)
     cursor = conn.cursor()
     cursor.execute("INSERT INTO geometry (atom_id, x, y) VALUES ('atom1', 10, 20)")
-    cursor.execute("INSERT INTO threads (source_id, target_id) VALUES ('atom1', 'atom2')")
+    cursor.execute("INSERT INTO threads (id, source, target) VALUES ('t1', 'atom1', 'atom2')")
     conn.commit()
     conn.close()
     
@@ -93,10 +93,11 @@ def test_geometry_projection_integration():
     # 4. Verify DB updated
     conn = sqlite3.connect(TEST_DB)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM threads WHERE source_id='atom3'")
+    cursor.execute("SELECT * FROM threads WHERE source='atom3'")
     row = cursor.fetchone()
     assert row is not None
-    assert row[1] == 'atom4'
+    # id, source, target
+    assert row[2] == 'atom4'
     conn.close()
     
     # Cleanup generated file

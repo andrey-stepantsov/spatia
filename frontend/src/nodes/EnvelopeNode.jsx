@@ -56,9 +56,24 @@ export default memo(({ data, id, selected }) => {
 
                 {/* Helper text only visible on hover/selected */}
                 {selected && (
-                    <div className="absolute bottom-1 right-1 text-[8px] text-green-500/50">
-                        {id}
-                    </div>
+                    <>
+                        <div className="absolute top-0 right-6 p-1 z-50">
+                            <button
+                                className="bg-red-900/80 text-red-300 hover:bg-red-700 text-[10px] px-2 py-0.5 rounded font-mono uppercase tracking-widest border border-red-700/50 transition-colors"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (data.onDelete) {
+                                        data.onDelete(id);
+                                    }
+                                }}
+                            >
+                                DELETE
+                            </button>
+                        </div>
+                        <div className="absolute bottom-1 right-1 text-[8px] text-green-500/50">
+                            {id}
+                        </div>
+                    </>
                 )}
             </div>
 
