@@ -82,6 +82,22 @@ case "$DOMAIN" in
          GOTO_CLEANUP=1
     fi
     ;;
+  "Legal")
+    printf "\033[1;36m[WITNESS]\033[0m Performing Legal Clause Check...\n"
+    if ! .spatia/bin/witness-legal.py "$ATOM_ID" >> "$ATOM_LOG" 2>&1; then
+         printf "\033[1;31m[WITNESS]\033[0m Legal Check Failed.\n"
+         RESULT="FAILURE"
+         EXIT_CODE=1
+    else
+         printf "\033[1;32m[WITNESS]\033[0m Legal Check Passed.\n"
+         EXIT_CODE=0
+         GOTO_CLEANUP=1
+    fi
+    ;;
+  "Software")
+    # Explicit fallthrough to Nix verification
+    :
+    ;;
 esac
 
 if [ "$EXIT_CODE" == "1" ]; then

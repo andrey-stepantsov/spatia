@@ -27,6 +27,7 @@ export default function App() {
   const [shatterContent, setShatterContent] = useState('');
   const [isHollow, setIsHollow] = useState(false);
   const [isGhostMode, setIsGhostMode] = useState(false);
+  const [showShatterEditor, setShowShatterEditor] = useState(false);
 
   // Modal States
   const [showEnvelopeModal, setShowEnvelopeModal] = useState(false);
@@ -394,13 +395,21 @@ export default function App() {
               onChange={(e) => setShatterPath(e.target.value)}
             />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 relative group">
             <textarea
               placeholder="Content (optional)"
               className="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 h-20 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-mono resize-none"
               value={shatterContent}
               onChange={(e) => setShatterContent(e.target.value)}
             />
+            <button
+              type="button"
+              onClick={() => setShowShatterEditor(true)}
+              className="absolute top-1 right-1 text-gray-500 hover:text-blue-400 p-1 rounded transition-colors bg-black/50 backdrop-blur opacity-0 group-hover:opacity-100"
+              title="Fullscreen Editor"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+            </button>
           </div>
           <button type="submit" disabled={status !== 'connected'} className="w-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-gray-700 text-white rounded-lg py-2 text-xs font-bold tracking-wide transition-all shadow-lg shadow-blue-900/20">
             SHATTER ATOM
@@ -451,6 +460,38 @@ export default function App() {
         confirmLabel="Revive"
         variant="primary"
       />
+      {/* Fullscreen Shatter Editor */}
+      {showShatterEditor && (
+        <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200">
+          <div className="w-[90vw] h-[90vh] bg-[#1e1e1e] border border-gray-700 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-4 py-3 border-b border-gray-700 bg-[#252526]">
+              <h3 className="font-mono text-sm font-bold text-gray-200 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                Shatter Intent Editor
+              </h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowShatterEditor(false)}
+                  className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded text-xs font-bold transition-colors shadow-lg"
+                >
+                  DONE
+                </button>
+              </div>
+            </div>
+            <textarea
+              className="flex-1 bg-[#1e1e1e] text-gray-300 font-mono text-sm p-6 resize-none focus:outline-none custom-scrollbar leading-relaxed"
+              value={shatterContent}
+              onChange={(e) => setShatterContent(e.target.value)}
+              placeholder="Describe your intent or construct here..."
+              autoFocus
+            />
+            <div className="px-4 py-2 border-t border-gray-800 bg-[#007acc] text-white text-[10px] flex justify-between items-center">
+              <span>MARKDOWN SUPPORTED</span>
+              <span>{shatterContent.length} chars</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

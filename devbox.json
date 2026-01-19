@@ -14,10 +14,12 @@
             "echo 'Spatia Devbox Initialized (Virtual Environment Active)'"
         ],
         "scripts": {
+            "start": "bash scripts/start_system.sh",
             "test": "echo \"Error: no test specified\" && exit 1",
             "server": "uvicorn backend.main:app --port 8000",
             "web": "cd frontend && npm run dev",
-            "test:ui": "cd frontend && npx playwright test"
+            "test:ui": "cd frontend && npx playwright test",
+            "reset": "python3 scripts/reset_env.py"
         }
     }
 }

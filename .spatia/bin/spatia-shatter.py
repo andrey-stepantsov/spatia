@@ -15,11 +15,29 @@ def calculate_hash(content):
 
 import re
 
+IGNORE_DIRS = {'.git', '.spatia', '.agent', '.devbox', 'node_modules', '__pycache__', '.pytest_cache', '.venv', '.coverage', 'test-results'}
+IGNORE_FILES = {'.DS_Store', 'sentinel.db', 'sentinel.db-journal', '.env'}
+
 def detect_domain(filename, content):
+    # Register Domain - existing logic
     if filename.endswith('.h'):
-        # Look for hex literals (e.g., 0x1234)
         if re.search(r'0x[0-9A-Fa-f]+', content):
             return 'Register'
+            
+    # Culinary Domain
+    if filename.endswith('.recipe') or filename.endswith('.cook'):
+        return 'Culinary'
+        
+    # Legal Domain
+    if filename.endswith('.contract') or filename.endswith('.legal'):
+        return 'Legal'
+        
+    # Software Domain
+    software_exts = {'.py', '.js', '.jsx', '.ts', '.tsx', '.rs', '.go', '.cpp', '.c', '.java', '.rb'}
+    _, ext = os.path.splitext(filename)
+    if ext in software_exts:
+        return 'Software'
+
     return 'generic'
 
 def shatter(conn):

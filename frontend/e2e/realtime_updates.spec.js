@@ -29,8 +29,8 @@ test.describe('Realtime Updates', () => {
 
         // Verify Node appears (Blue Border for Shadow/Status 0)
         // Verify Node appears (Blue Border for Shadow/Status 0)
-        // Locator strategy: Text -> Header -> Node Container
-        const nodeContainer = page.locator('text=atoms/e2e_realtime.md').locator('xpath=../..');
+        // Locator strategy: Find the main container (rounded-xl) that contains the specific atom text
+        const nodeContainer = page.locator('div.rounded-xl').filter({ hasText: 'atoms/e2e_realtime.md' }).first();
         await expect(nodeContainer).toBeVisible({ timeout: 10000 });
         await expect(nodeContainer).toHaveClass(/border-blue-500/);
 

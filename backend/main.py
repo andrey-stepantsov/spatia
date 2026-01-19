@@ -543,8 +543,10 @@ async def summon_atom(request: SummonRequest, background_tasks: BackgroundTasks)
              cursor = conn.cursor()
              
              # Fetch content again? Yes, it should be safe now we have lock.
-             cursor.execute("SELECT content FROM atoms WHERE id = ?", (atom_id,))
-             content = cursor.fetchone()['content']
+             cursor.execute("SELECT content, domain FROM atoms WHERE id = ?", (atom_id,))
+             row = cursor.fetchone()
+             content = row['content']
+             domain = row['domain']
              
              cursor.execute("SELECT * FROM portals WHERE atom_id = ?", (atom_id,))
              portals = [dict(r) for r in cursor.fetchall()]
@@ -555,7 +557,7 @@ async def summon_atom(request: SummonRequest, background_tasks: BackgroundTasks)
         # 3. Generate Content (Offloaded to avoid blocking main loop)
         new_content = await run_in_thread(
             projector.summon, 
-            atom_id, content, portals, neighbors, request.model
+            atom_id, content, portals, neighbors, request.model, domain
         )
         
         # Strip Markdown Code Blocks

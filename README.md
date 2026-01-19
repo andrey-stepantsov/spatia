@@ -67,13 +67,23 @@ For more theoretical background, see the [Documentation](docs/):
 
 Spatia consists of a FastAPI backend and a React frontend. You can run them using the configured devbox scripts.
 
-### Backend Server
+### Unified Start (Recommended)
+Starts both the Backend and Frontend concurrently.
+```bash
+devbox run start
+```
+Use `Ctrl+C` to stop both services.
+
+### Individual Services
+If you prefer to run them separately:
+
+#### Backend Server
 Starts the FastAPI server on `http://localhost:8000`.
 ```bash
 devbox run server
 ```
 
-### Frontend Client
+#### Frontend Client
 Starts the React development server.
 ```bash
 devbox run web

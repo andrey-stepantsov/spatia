@@ -93,4 +93,28 @@ describe('SpatiaNode', () => {
         fireEvent.click(screen.getByText('Witness'));
         expect(api.post).toHaveBeenCalledWith('/api/witness', { atom_id: 'atoms/test.md' });
     });
+
+    it('opens maximize modal when maximize button is clicked', () => {
+        render(<Wrapper><SpatiaNode {...createProps()} /></Wrapper>);
+        // Maximize button has title 'Maximize'
+        const maximizeBtn = screen.getByTitle('Maximize');
+        fireEvent.click(maximizeBtn);
+
+        // Modal should appear
+        expect(screen.getByText('Spaces: 4')).toBeInTheDocument();
+    });
+
+    it('copies content when copy button is clicked', () => {
+        Object.assign(navigator, {
+            clipboard: {
+                writeText: vi.fn(),
+            },
+        });
+
+        render(<Wrapper><SpatiaNode {...createProps()} /></Wrapper>);
+        const copyBtn = screen.getByTitle('Copy Content');
+        fireEvent.click(copyBtn);
+
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith('# Test Content');
+    });
 });

@@ -465,7 +465,7 @@ async def test_summon_atom_edge_cases():
     conn.__enter__.return_value = conn
     
     # row found, but status 1
-    cursor.fetchone.return_value = {"content": "c", "status": 1}
+    cursor.fetchone.return_value = {"content": "c", "status": 1, "domain": "generic"}
     
     with patch('backend.main.get_db_connection', return_value=conn):
         with pytest.raises(Exception) as exc:
@@ -473,7 +473,7 @@ async def test_summon_atom_edge_cases():
         assert "Atom is not in Hollow state" in str(exc.value.detail)
 
     # 2. Strip code blocks
-    cursor.fetchone.return_value = {"content": "c", "status": 0}
+    cursor.fetchone.return_value = {"content": "c", "status": 0, "domain": "generic"}
     cursor.fetchall.return_value = [] # no portals/neighbors
     
     # Projector returns ```markdown\ncontent\n```
@@ -688,7 +688,7 @@ async def test_summon_atom_write_disk():
     # Lines 588-589: if os.path.exists(atom_id): write...
     
     conn = MagicMock()
-    conn.cursor.return_value.fetchone.return_value = {"content": "c", "status": 0}
+    conn.cursor.return_value.fetchone.return_value = {"content": "c", "status": 0, "domain": "generic"}
     conn.cursor.return_value.fetchall.return_value = []
     conn.__enter__.return_value = conn
     
